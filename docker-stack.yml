@@ -1,17 +1,15 @@
 version: "3.7"
 
-# docker stack deploy -c docker-stack.yml keekconecta
-
 services:
   db:
     image: mysql:8.0
     networks:
       - keek_internal
     environment:
-      - MYSQL_ROOT_PASSWORD=${DB_ROOT_PASS}
-      - MYSQL_DATABASE=${DB_NAME:-edidesk}
-      - MYSQL_USER=${DB_USER:-keek}
-      - MYSQL_PASSWORD=${DB_PASS}
+      - MYSQL_ROOT_PASSWORD=Keek@Root2025
+      - MYSQL_DATABASE=edidesk
+      - MYSQL_USER=keek
+      - MYSQL_PASSWORD=Keek@DB2025
       - TZ=America/Sao_Paulo
     volumes:
       - keek_db:/var/lib/mysql
@@ -37,14 +35,14 @@ services:
       - keek_internal
     environment:
       - DB_HOST=db
-      - DB_NAME=${DB_NAME:-edidesk}
-      - DB_USER=${DB_USER:-keek}
-      - DB_PASS=${DB_PASS}
-      - CRYPTO_KEY=${CRYPTO_KEY}
-      - APP_URL=https://${APP_DOMAIN}
+      - DB_NAME=edidesk
+      - DB_USER=keek
+      - DB_PASS=Keek@DB2025
+      - CRYPTO_KEY=c3509b281e51bb4443f4db3cbdb65ca695a152f5e4125de482d80c349bfe4d25
+      - APP_URL=https://parlamentares.keekconecta.com.br
       - BASE_PATH=
-      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@keekconecta.com.br}
-      - ADMIN_PASS=${ADMIN_PASS}
+      - ADMIN_EMAIL=adriel@edidesk.com.br
+      - ADMIN_PASS=Keek@Admin2025
       - TZ=America/Sao_Paulo
     deploy:
       mode: replicated
@@ -62,7 +60,7 @@ services:
         max_attempts: 3
       labels:
         - traefik.enable=1
-        - traefik.http.routers.keekconecta.rule=Host(`${APP_DOMAIN}`)
+        - traefik.http.routers.keekconecta.rule=Host(`parlamentares.keekconecta.com.br`)
         - traefik.http.routers.keekconecta.entrypoints=websecure
         - traefik.http.routers.keekconecta.priority=1
         - traefik.http.routers.keekconecta.tls.certresolver=letsencryptresolver
