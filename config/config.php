@@ -1,4 +1,15 @@
 <?php
+// Carrega .env local se existir (dev com XAMPP)
+$_dotenv = __DIR__ . '/../.env';
+if (file_exists($_dotenv)) {
+    foreach (file($_dotenv, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
+        if ($line[0] === '#' || !str_contains($line, '=')) continue;
+        [$k, $v] = explode('=', $line, 2);
+        putenv(trim($k) . '=' . trim($v));
+    }
+}
+unset($_dotenv);
+
 // Lê de env var → Docker secret → default (nessa ordem de prioridade)
 function _env(string $key, string $default = ''): string {
     $val = getenv($key);
