@@ -1,0 +1,53 @@
+version: '3.8'
+
+# ── Docker Swarm: docker stack deploy -c docker-stack.yml keekconecta ────────
+# Pré-requisitos:
+#   docker secret create db_pass    <(echo "sua_senha")
+#   docker secret create crypto_key <(echo "sua_chave_hex")
+#   docker network create --driver overlay keek_net
+
+services:
+  app:
+    image: ${DOCKERHUB_USERNAME}/keekconecta:${TAG:-latest}
+    environment:
+      DB_HOST: ${DB_HOST}       # host do MySQL externo ou serviço interno
+      DB_NAME: ${DB_NAME:-edidesk}
+      DB_USER: ${DB_USER:-keek}
+      APP_URL: ${APP_URL}
+      BASE_PATH: ""
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@keekconecta.com.br}
+    secrets:
+      - db_pass
+      - crypto_key
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first        # zero-downtime deploy
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      labels:
+        # Traefik — ajuste para o seu setup
+        - "traefik.enable=true"
+        - "traefik.http.routers.keekconecta.rule=Host(`${APP_DOMAIN}`)"
+        - "traefik.http.routers.keekconecta.entrypoints=websecure"
+        - "traefik.http.routers.keekconecta.tls.certresolver=letsencrypt"
+        - "traefik.http.services.keekconecta.loadbalancer.server.port=80"
+        # Sticky sessions: necessário pois PHP usa sessões em arquivo
+        - "traefik.http.services.keekconecta.loadbalancer.sticky.cookie=true"
+        - "traefik.http.services.keekconecta.loadbalancer.sticky.cookie.name=KKSESSION"
+    networks:
+      - keek_net
+
+secrets:
+  db_pass:
+    external: true
+  crypto_key:
+    external: true
+
+networks:
+  keek_net:
+    external: true

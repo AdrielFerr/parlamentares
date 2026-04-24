@@ -1,0 +1,47 @@
+version: '3.8'
+
+# ── Dev local: docker compose up -d ─────────────────────────────────────────
+
+services:
+  app:
+    build: .
+    ports:
+      - "8080:80"
+    environment:
+      DB_HOST: db
+      DB_NAME: ${DB_NAME:-edidesk}
+      DB_USER: ${DB_USER:-keek}
+      DB_PASS: ${DB_PASS:-secret}
+      CRYPTO_KEY: ${CRYPTO_KEY:-a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456}
+      APP_URL: ${APP_URL:-http://localhost:8080}
+      BASE_PATH: ""
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@keekconecta.com.br}
+      ADMIN_PASS: ${ADMIN_PASS:-keek@2025}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - keek_net
+
+  db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root_secret
+      MYSQL_DATABASE: ${DB_NAME:-edidesk}
+      MYSQL_USER: ${DB_USER:-keek}
+      MYSQL_PASSWORD: ${DB_PASS:-secret}
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - keek_net
+
+volumes:
+  db_data:
+
+networks:
+  keek_net:

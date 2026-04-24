@@ -1,0 +1,11 @@
+.git
+.github
+.claude
+.vscode
+*.md
+docker-compose.yml
+docker-stack.yml
+.env
+.env.*
+!.env.example
+database/setup.php
