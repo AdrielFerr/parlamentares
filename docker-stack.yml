@@ -1,53 +1,54 @@
-version: '3.8'
+version: "3.7"
 
-# ── Docker Swarm: docker stack deploy -c docker-stack.yml keekconecta ────────
-# Pré-requisitos:
-#   docker secret create db_pass    <(echo "sua_senha")
-#   docker secret create crypto_key <(echo "sua_chave_hex")
-#   docker network create --driver overlay keek_net
+# docker stack deploy -c docker-stack.yml keekconecta
 
 services:
   app:
-    image: ${DOCKERHUB_USERNAME}/keekconecta:${TAG:-latest}
+    image: adrielferr/parlamentares:latest
+    networks:
+      - network_public
     environment:
-      DB_HOST: ${DB_HOST}       # host do MySQL externo ou serviço interno
-      DB_NAME: ${DB_NAME:-edidesk}
-      DB_USER: ${DB_USER:-keek}
-      APP_URL: ${APP_URL}
-      BASE_PATH: ""
-      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@keekconecta.com.br}
-    secrets:
-      - db_pass
-      - crypto_key
+      - DB_HOST=${DB_HOST}
+      - DB_NAME=${DB_NAME:-edidesk}
+      - DB_USER=${DB_USER:-keek}
+      - DB_PASS=${DB_PASS}
+      - CRYPTO_KEY=${CRYPTO_KEY}
+      - APP_URL=https://${APP_DOMAIN}
+      - BASE_PATH=
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@keekconecta.com.br}
+      - ADMIN_PASS=${ADMIN_PASS}
+      - TZ=America/Sao_Paulo
     deploy:
-      replicas: 2
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
       update_config:
         parallelism: 1
         delay: 10s
-        order: start-first        # zero-downtime deploy
+        order: start-first
       restart_policy:
         condition: on-failure
         delay: 5s
         max_attempts: 3
       labels:
-        # Traefik — ajuste para o seu setup
-        - "traefik.enable=true"
-        - "traefik.http.routers.keekconecta.rule=Host(`${APP_DOMAIN}`)"
-        - "traefik.http.routers.keekconecta.entrypoints=websecure"
-        - "traefik.http.routers.keekconecta.tls.certresolver=letsencrypt"
-        - "traefik.http.services.keekconecta.loadbalancer.server.port=80"
-        # Sticky sessions: necessário pois PHP usa sessões em arquivo
-        - "traefik.http.services.keekconecta.loadbalancer.sticky.cookie=true"
-        - "traefik.http.services.keekconecta.loadbalancer.sticky.cookie.name=KKSESSION"
-    networks:
-      - keek_net
-
-secrets:
-  db_pass:
-    external: true
-  crypto_key:
-    external: true
+        - traefik.enable=1
+        - traefik.http.routers.keekconecta.rule=Host(`${APP_DOMAIN}`)
+        - traefik.http.routers.keekconecta.entrypoints=websecure
+        - traefik.http.routers.keekconecta.priority=1
+        - traefik.http.routers.keekconecta.tls.certresolver=letsencryptresolver
+        - traefik.http.routers.keekconecta.service=keekconecta
+        - traefik.http.services.keekconecta.loadbalancer.server.port=80
+        - traefik.http.services.keekconecta.loadbalancer.passHostHeader=true
+        - traefik.http.services.keekconecta.loadbalancer.sticky.cookie=true
+        - traefik.http.services.keekconecta.loadbalancer.sticky.cookie.name=KKSESSION
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
 
 networks:
-  keek_net:
+  network_public:
     external: true
+    name: network_public
