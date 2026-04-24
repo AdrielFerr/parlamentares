@@ -13,7 +13,7 @@ services:
       - DB_USER=${DB_USER:-keek}
       - DB_PASS=${DB_PASS}
       - CRYPTO_KEY=${CRYPTO_KEY}
-      - APP_URL=https://${APP_DOMAIN}
+      - APP_URL=https://parlamentares.keekconecta.com.br
       - BASE_PATH=
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@keekconecta.com.br}
       - ADMIN_PASS=${ADMIN_PASS}
@@ -34,7 +34,7 @@ services:
         max_attempts: 3
       labels:
         - traefik.enable=1
-        - traefik.http.routers.keekconecta.rule=Host(`${APP_DOMAIN}`)
+        - traefik.http.routers.keekconecta.rule=Host(`parlamentares.keekconecta.com.br`)
         - traefik.http.routers.keekconecta.entrypoints=websecure
         - traefik.http.routers.keekconecta.priority=1
         - traefik.http.routers.keekconecta.tls.certresolver=letsencryptresolver
