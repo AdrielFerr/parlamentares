@@ -9,7 +9,7 @@ services:
       - "8080:80"
     environment:
       DB_HOST: db
-      DB_NAME: ${DB_NAME:-edidesk}
+      DB_NAME: ${DB_NAME:-keekconecta}
       DB_USER: ${DB_USER:-keek}
       DB_PASS: ${DB_PASS:-secret}
       CRYPTO_KEY: ${CRYPTO_KEY:-a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456}
@@ -27,7 +27,7 @@ services:
     image: mysql:8.0
     environment:
       MYSQL_ROOT_PASSWORD: root_secret
-      MYSQL_DATABASE: ${DB_NAME:-edidesk}
+      MYSQL_DATABASE: ${DB_NAME:-keekconecta}
       MYSQL_USER: ${DB_USER:-keek}
       MYSQL_PASSWORD: ${DB_PASS:-secret}
     volumes:

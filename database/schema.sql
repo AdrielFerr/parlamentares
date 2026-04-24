@@ -1,6 +1,6 @@
 -- Edidesk schema
-CREATE DATABASE IF NOT EXISTS edidesk CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE edidesk;
+CREATE DATABASE IF NOT EXISTS keekconecta CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE keekconecta;
 
 CREATE TABLE IF NOT EXISTS clientes (
   id        INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
