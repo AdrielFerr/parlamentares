@@ -11,6 +11,16 @@ $partes    = array_filter(explode(' ', trim($userNome)));
 $iniciais  = strtoupper(substr($partes[0] ?? 'U', 0, 1) . substr(end($partes) ?? '', 0, 1));
 $paleta    = ['#16a34a','#2563eb','#9333ea','#ea580c','#0891b2','#db2777','#ca8a04'];
 $corAvatar = $paleta[abs(crc32($userNome)) % count($paleta)];
+
+// Branding dinâmico — cliente derivado do projeto ativo
+$_clienteIdForBranding = null;
+$_projetoId = Auth::projetoId();
+if ($_projetoId) {
+    $_proj = (new Projeto())->find((int)$_projetoId);
+    if ($_proj) $_clienteIdForBranding = (int)$_proj['cliente_id'];
+}
+$_cssVars = Configuracao::getCssVars($_clienteIdForBranding);
+$_logoUrl = Configuracao::logoUrl($_clienteIdForBranding);
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -40,13 +50,14 @@ button{font-family:inherit;cursor:pointer}
   --red:#dc2626;
   --red-light:#fef2f2;
   --gold:#C9A84C;
+  <?= $_cssVars ?>
 }
 
 body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex}
 
 /* ── SIDEBAR ── */
 .sidebar{width:var(--sidebar-w);background:#fff;border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:100vh;flex-shrink:0;position:fixed;top:0;left:0;bottom:0;z-index:100}
-.sidebar-logo{display:flex;align-items:center;gap:10px;padding:18px 16px 16px;border-bottom:1px solid var(--border);flex-shrink:0}
+.sidebar-logo{display:flex;align-items:center;justify-content:center;gap:10px;padding:22px 16px 20px;border-bottom:1px solid var(--border);flex-shrink:0;min-height:80px}
 .logo-icon{width:30px;height:30px;background:var(--accent);border-radius:7px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:14px;flex-shrink:0}
 .logo-text{font-size:15px;font-weight:700;color:var(--text);letter-spacing:-.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sidebar-nav{flex:1;padding:10px 0;overflow-y:auto}
@@ -65,7 +76,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-h
 
 /* ── TOPBAR ── */
 .main-wrap{margin-left:var(--sidebar-w);flex:1;display:flex;flex-direction:column;min-height:100vh}
-.topbar{background:#fff;border-bottom:1px solid var(--border);height:52px;padding:0 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}
+.topbar{background:#fff;border-bottom:1px solid var(--border);height:64px;padding:0 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}
 .topbar-left{display:flex;align-items:center;gap:10px}
 .topbar-projeto{display:flex;align-items:center;gap:7px;font-size:14px;font-weight:600;color:var(--text)}
 .topbar-projeto-icon{color:var(--accent);font-size:13px}
@@ -148,8 +159,12 @@ input:focus,select.form-select:focus,textarea:focus{border-color:var(--accent);b
 <!-- ══ SIDEBAR ══ -->
 <aside class="sidebar" id="appSidebar">
   <div class="sidebar-logo">
-    <div class="logo-icon">K</div>
-    <span class="logo-text"><?= APP_NAME ?></span>
+    <?php if ($_logoUrl): ?>
+      <img src="<?= BASE_PATH . htmlspecialchars($_logoUrl) ?>" alt="Logo" style="max-height:56px;max-width:178px;object-fit:contain;display:block">
+    <?php else: ?>
+      <div class="logo-icon">K</div>
+      <span class="logo-text"><?= htmlspecialchars(APP_NAME) ?></span>
+    <?php endif; ?>
   </div>
 
   <nav class="sidebar-nav">
@@ -166,7 +181,7 @@ input:focus,select.form-select:focus,textarea:focus{border-color:var(--accent);b
         : ($dashUrl ? BASE_PATH . $dashUrl : '#');
     ?>
     <a href="<?= htmlspecialchars($href) ?>" class="nav-item">
-      <span class="nav-icon"><?= htmlspecialchars($dash['icone'] ?? '📊') ?></span>
+      <span class="nav-icon"><i class="ph ph-chart-bar"></i></span>
       <?= htmlspecialchars($dash['nome']) ?>
     </a>
     <?php endforeach; ?>
@@ -227,10 +242,6 @@ input:focus,select.form-select:focus,textarea:focus{border-color:var(--accent);b
         </a>
         <?php endif; ?>
 
-        <a href="#">
-          <svg class="dd-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
-          Alterar Senha
-        </a>
         <hr>
         <a href="<?= BASE_PATH ?>/logout" class="danger">
           <svg class="dd-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>

@@ -2,7 +2,8 @@
 
 <style>
 /* ── Sentinela IA ── */
-.sent-page{display:flex;flex-direction:column;height:calc(100vh - 140px);min-height:520px}
+.main-content{display:flex;flex-direction:column;overflow:hidden;padding-bottom:0}
+.sent-page{display:flex;flex-direction:column;flex:1;min-height:0;padding-bottom:24px}
 
 .sent-header{display:flex;align-items:center;justify-content:space-between;padding:0 0 12px;flex-shrink:0}
 .sent-title{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--text)}
@@ -112,6 +113,10 @@
         <svg viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="14" rx="1"/><path d="M5 6h6M5 9h6M5 12h4"/></svg>
         Ver pesquisas
       </button>
+      <button class="sent-btn" onclick="if(confirm('Limpar toda a conversa?')) clearHistory()" title="Nova conversa">
+        <svg viewBox="0 0 16 16"><path d="M3 3l10 10M13 3L3 13"/></svg>
+        Nova conversa
+      </button>
     </div>
   </div>
 
@@ -125,20 +130,6 @@
 
     <!-- Messages -->
     <div class="chat-area" id="chatArea">
-      <div class="empty-state" id="emptyState">
-        <div class="empty-icon">
-          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 2.5"/></svg>
-        </div>
-        <h3>Sentinela pronto</h3>
-        <p>Anexe pesquisas e faça perguntas ao agente. Posso gerar gráficos se você pedir.</p>
-        <div class="suggestions">
-          <button class="sug" onclick="useSug(this)">Intenção de votos</button>
-          <button class="sug" onclick="useSug(this)">Compare os institutos</button>
-          <button class="sug" onclick="useSug(this)">Perfil do eleitorado</button>
-          <button class="sug" onclick="useSug(this)">Gerar gráfico de resultados</button>
-          <button class="sug" onclick="useSug(this)">Metodologia da pesquisa</button>
-        </div>
-      </div>
     </div>
 
     <!-- Input -->
@@ -197,13 +188,62 @@ const CSRF_TOKEN = '<?= Auth::csrfToken() ?>';
 let files = {};
 let nextLocalId = 1;
 let busy = false;
+let conversationHistory = [];
+const MAX_HISTORY_TURNS = 20;
+const HISTORY_KEY = 'sentinela_history_' + PROJETO_ID;
+
+function saveHistory() {
+  try { sessionStorage.setItem(HISTORY_KEY, JSON.stringify(conversationHistory)); } catch(e) {}
+}
+
+function clearHistory() {
+  conversationHistory = [];
+  try { sessionStorage.removeItem(HISTORY_KEY); } catch(e) {}
+  const ca = document.getElementById('chatArea');
+  ca.innerHTML = '';
+  ca.appendChild(emptyStateEl());
+}
+
+function emptyStateEl() {
+  const d = document.createElement('div');
+  d.className = 'empty-state';
+  d.id = 'emptyState';
+  d.innerHTML = `<div class="empty-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 2.5"/></svg></div>
+    <h3>Sentinela pronto</h3>
+    <p>Anexe pesquisas e faça perguntas ao agente. Posso gerar gráficos se você pedir.</p>
+    <div class="suggestions">
+      <button class="sug" onclick="useSug(this)">Intenção de votos</button>
+      <button class="sug" onclick="useSug(this)">Compare os institutos</button>
+      <button class="sug" onclick="useSug(this)">Perfil do eleitorado</button>
+      <button class="sug" onclick="useSug(this)">Gerar gráfico de resultados</button>
+      <button class="sug" onclick="useSug(this)">Metodologia da pesquisa</button>
+    </div>`;
+  return d;
+}
+
+function loadHistory() {
+  try {
+    const raw = sessionStorage.getItem(HISTORY_KEY);
+    if (!raw) return;
+    const history = JSON.parse(raw);
+    if (!Array.isArray(history) || !history.length) return;
+    conversationHistory = history;
+    history.forEach(msg => {
+      if (msg.role === 'user') {
+        addMsg('user', '<p>' + esc(msg.content) + '</p>');
+      } else if (msg.content.startsWith('[Gráfico gerado:')) {
+        addMsg('assistant', '<p><em>' + esc(msg.content) + '</em></p>');
+      } else {
+        addMsg('assistant', fmt(cleanFileRefs(msg.content)));
+      }
+    });
+  } catch(e) {}
+}
 
 // Seed from DB
 <?php foreach ($arquivos as $a): ?>
 files[<?= $a['id'] ?>] = {name: <?= json_encode($a['nome']) ?>, content: <?= json_encode($a['conteudo']) ?>, chars: <?= strlen($a['conteudo']) ?>};
 <?php endforeach; ?>
-
-renderCtx();
 
 // ── File input ──
 document.getElementById('fileInput').addEventListener('change', e => {
@@ -332,6 +372,10 @@ function removeFile(id) {
 // ── Chat ──
 const chatArea = document.getElementById('chatArea');
 const inputEl  = document.getElementById('userInput');
+
+chatArea.appendChild(emptyStateEl());
+renderCtx();
+loadHistory();
 
 inputEl.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); } });
 inputEl.addEventListener('input', () => { inputEl.style.height = '44px'; inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px'; });
@@ -481,20 +525,35 @@ async function sendMsg() {
   inputEl.value = ''; inputEl.style.height = '';
   addTyping();
 
+  conversationHistory.push({role: 'user', content: q});
+
   const docs = Object.values(files).map(f => '[' + f.name + ']\n' + f.content).join('\n\n---\n\n');
-  const sysContent = `Você é o Sentinela IA, assistente de inteligência legislativa e análise de pesquisas eleitorais.
-Responda sempre em português brasileiro de forma clara e objetiva.
-Nunca mencione nomes de arquivos nem coloque referências entre parênteses nas suas respostas.
-Não cite de qual arquivo o dado foi retirado — apenas forneça a informação diretamente.
+  const sysContent = `Você é o Sentinela IA, assistente especializado exclusivamente em análise de pesquisas eleitorais e de opinião pública.
+
+REGRAS OBRIGATÓRIAS:
+1. Responda APENAS sobre o conteúdo dos documentos de pesquisa carregados. Não responda sobre outros temas.
+2. Se o usuário perguntar algo não relacionado a pesquisas eleitorais ou aos documentos carregados, recuse educadamente e peça que ele carregue uma pesquisa relevante.
+3. Não desvie o assunto para política partidária, aconselhamento estratégico, criação de conteúdo ou temas além das pesquisas carregadas.
+4. Nunca mencione nomes de arquivos nem coloque referências entre parênteses nas suas respostas.
+5. Não cite de qual arquivo o dado foi retirado — apenas forneça a informação diretamente.
+6. Responda sempre em português brasileiro de forma clara e objetiva.
+7. Temas permitidos: metodologia de pesquisa, intenção de votos, aprovação/rejeição, perfil do eleitorado, análise estatística, tendências eleitorais, comparação entre pesquisas carregadas, ranking de candidatos conforme as pesquisas.
+8. Temas proibidos: opiniões pessoais, aconselhamento eleitoral, conteúdo político não baseado nas pesquisas, qualquer assunto fora do escopo das pesquisas carregadas.
+9. Você TEM MEMÓRIA desta conversa — lembre-se de tudo que foi dito anteriormente, incluindo gráficos que você gerou.
 Se o usuário pedir um gráfico, retorne APENAS um JSON válido neste formato exato, sem nenhum texto antes ou depois:
 {"type":"chart","chartType":"bar","title":"Título do gráfico","labels":["A","B"],"datasets":[{"label":"Série","data":[10,20]}]}
 chartType pode ser: bar, horizontalBar, line, doughnut, pie.
 
-${docs ? 'Documentos disponíveis:\n\n' + docs : 'Nenhum documento carregado. Oriente o usuário a anexar uma pesquisa.'}`;
+${docs ? 'Documentos de pesquisa disponíveis:\n\n' + docs : 'Nenhum documento carregado. Oriente o usuário a anexar uma pesquisa eleitoral para começar.'}`;
+
+  // Limita o histórico para não estourar o contexto da API (mantém últimas N trocas)
+  while (conversationHistory.length > MAX_HISTORY_TURNS * 2) {
+    conversationHistory.splice(0, 2);
+  }
 
   const messages = [
     {role: 'system', content: sysContent},
-    {role: 'user',   content: q}
+    ...conversationHistory
   ];
 
   try {
@@ -508,20 +567,34 @@ ${docs ? 'Documentos disponíveis:\n\n' + docs : 'Nenhum documento carregado. Or
     removeTyping();
 
     if (data.error) {
+      conversationHistory.pop();
+      saveHistory();
       addMsg('assistant', '<p>⚠️ ' + esc(data.error) + '</p>');
     } else {
       const text = data.choices?.[0]?.message?.content || '';
-      if (!text) { addMsg('assistant', '<p>⚠️ Sem resposta do servidor.</p>'); }
-      else {
+      if (!text) {
+        conversationHistory.pop();
+        saveHistory();
+        addMsg('assistant', '<p>⚠️ Sem resposta do servidor.</p>');
+      } else {
         const chart = tryParseChart(text);
         if (chart) {
+          const chartDesc = '[Gráfico gerado: "' + (chart.title || 'sem título') + '" — tipo: ' + (chart.chartType || 'bar') +
+            ', categorias: ' + (chart.labels || []).join(', ') +
+            ', dados: ' + (chart.datasets || []).map(ds => ds.label + ': ' + (ds.data || []).join(', ')).join(' | ') + ']';
+          conversationHistory.push({role: 'assistant', content: chartDesc});
+          saveHistory();
           addChartMsg(chart);
         } else {
+          conversationHistory.push({role: 'assistant', content: text});
+          saveHistory();
           addMsg('assistant', fmt(cleanFileRefs(text)));
         }
       }
     }
   } catch(e) {
+    conversationHistory.pop();
+    saveHistory();
     removeTyping();
     addMsg('assistant', '<p>⚠️ Falha na comunicação com o servidor.</p>');
   }

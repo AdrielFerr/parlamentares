@@ -1,8 +1,9 @@
 <?php
 /* Layout exclusivo da tela de seleção de projetos — sem sidebar */
-$user    = Auth::user();
-$lvls    = ['SuperAdmin','ClienteAdmin','Gestor','Analista','Visualizador'];
-$nivel   = $lvls[Auth::nivel()] ?? 'Usuário';
+$user      = Auth::user();
+$lvls      = ['SuperAdmin','ClienteAdmin','Gestor','Analista','Visualizador'];
+$nivel     = $lvls[Auth::nivel()] ?? 'Usuário';
+$_logoProj = Configuracao::logoUrl(null);
 
 /* Iniciais do avatar: até 2 letras */
 $partes  = array_filter(explode(' ', trim($user['nome'] ?? 'U')));
@@ -32,7 +33,7 @@ button{font-family:inherit;cursor:pointer}
 input,select,textarea{font-family:inherit}
 
 /* ───────── Header fixo ───────── */
-.hd{position:fixed;top:0;left:0;right:0;z-index:200;background:#fff;border-bottom:1px solid #e5e7eb;box-shadow:0 1px 4px rgba(0,0,0,.06);height:64px;display:flex;align-items:center;padding:0 32px}
+.hd{position:fixed;top:0;left:0;right:0;z-index:200;background:#fff;border-bottom:1px solid #e5e7eb;box-shadow:0 1px 4px rgba(0,0,0,.06);height:56px;display:flex;align-items:center;padding:0 32px}
 .hd-brand{display:flex;align-items:center;gap:10px;flex:1}
 .hd-brand-logo{width:34px;height:34px;background:#16a34a;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:15px;letter-spacing:-.5px}
 .hd-brand-name{font-weight:700;font-size:16px;color:#111827;letter-spacing:-.3px}
@@ -180,13 +181,18 @@ input,select,textarea{font-family:inherit}
 <!-- ════════ HEADER ════════ -->
 <header class="hd">
   <div class="hd-brand">
-    <div class="hd-brand-logo">K</div>
-    <div>
-      <div class="hd-brand-name"><?= APP_NAME ?></div>
-      <div class="hd-brand-sub">Inteligência Legislativa</div>
-    </div>
+    <?php if ($_logoProj): ?>
+      <img src="<?= BASE_PATH . htmlspecialchars($_logoProj) ?>" alt="Logo" style="max-height:36px;max-width:150px;object-fit:contain;display:block">
+    <?php else: ?>
+      <div class="hd-brand-logo">K</div>
+      <div>
+        <div class="hd-brand-name"><?= APP_NAME ?></div>
+        <div class="hd-brand-sub">Inteligência Legislativa</div>
+      </div>
+    <?php endif; ?>
   </div>
 
+  <?php if (Auth::isSuperAdmin()): ?>
   <div class="user-wrap" id="userToggle">
     <div class="user-avatar" style="background:<?= $corAvatar ?>">
       <?= htmlspecialchars($iniciais) ?>
@@ -203,10 +209,6 @@ input,select,textarea{font-family:inherit}
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
         Configurações
       </a>
-      <a href="#">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
-        Alterar Senha
-      </a>
       <hr>
       <a href="<?= BASE_PATH ?>/logout" class="danger">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
@@ -214,6 +216,12 @@ input,select,textarea{font-family:inherit}
       </a>
     </div>
   </div>
+  <?php else: ?>
+  <a href="<?= BASE_PATH ?>/logout" style="display:inline-flex;align-items:center;gap:7px;padding:8px 16px;border:1.5px solid #e5e7eb;border-radius:9px;font-size:13px;font-weight:600;color:#374151;background:#fff;transition:all .15s;text-decoration:none" onmouseover="this.style.borderColor='#dc2626';this.style.color='#dc2626'" onmouseout="this.style.borderColor='#e5e7eb';this.style.color='#374151'">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+    Sair
+  </a>
+  <?php endif; ?>
 </header>
 
 <!-- Toast de notificação -->

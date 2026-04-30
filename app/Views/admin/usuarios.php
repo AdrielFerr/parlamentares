@@ -18,7 +18,11 @@ function uAvatar(string $nome, array $paleta): array {
 <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:24px">
   <div>
     <h1 id="pageTitle" style="font-family:'Playfair Display',serif;font-size:22px;font-weight:800;line-height:1.1">Membros da Equipe</h1>
-    <p id="pageSub" style="font-size:13px;color:var(--muted);margin-top:4px">Gerencie os usuários que têm acesso a este projeto.</p>
+    <?php if (($ctx['id'] ?? null) === null && Auth::isSuperAdmin()): ?>
+    <p id="pageSub" style="font-size:13px;color:var(--muted);margin-top:4px">Administradores do sistema (SuperAdmin e Administrador sem cliente vinculado).</p>
+    <?php else: ?>
+    <p id="pageSub" style="font-size:13px;color:var(--muted);margin-top:4px">Gerencie os usuários de <strong><?= htmlspecialchars($ctx['nome'] ?? '') ?></strong>.</p>
+    <?php endif; ?>
   </div>
   <?php if (Auth::nivel() <= 1): ?>
   <button class="btn-primary" onclick="abrirModalUsuario()" style="display:flex;align-items:center;gap:8px">

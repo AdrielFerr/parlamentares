@@ -20,6 +20,8 @@ require APP . '/Models/FonteLegislativa.php';
 require APP . '/Models/SentinelaConversa.php';
 require APP . '/Models/SentinelaArquivo.php';
 require APP . '/Models/Parlamentar.php';
+require APP . '/Models/Configuracao.php';
+require APP . '/Models/SaplCache.php';
 
 // Controllers
 require APP . '/Controllers/AuthController.php';
@@ -70,6 +72,11 @@ $router->add('GET',  '/admin/clientes/novo', 'AdminController', 'clienteForm');
 $router->add('POST', '/admin/clientes/novo', 'AdminController', 'clienteStore');
 $router->add('POST', '/admin/clientes/deletar', 'AdminController', 'clienteDestroy');
 
+// Aparência (SuperAdmin)
+$router->add('GET',  '/admin/aparencia',             'AdminController', 'aparencia');
+$router->add('POST', '/admin/aparencia',             'AdminController', 'aparenciaSave');
+$router->add('POST', '/admin/aparencia/logo-remover','AdminController', 'aparenciaLogoRemove');
+
 // Perfil
 $router->add('GET',  '/perfil',        'AdminController', 'perfilForm');
 $router->add('POST', '/perfil',        'AdminController', 'perfilStore');
@@ -80,10 +87,15 @@ $router->add('GET', '/dashboard', 'DashboardController', 'visualizar');
 
 // API (AJAX)
 $router->add('GET',  '/api/proxy',    'ApiController', 'proxy');
+$router->add('GET',  '/api/img',      'ApiController', 'img');
 $router->add('POST', '/api/openai',   'ApiController', 'openai');
 $router->add('GET',  '/api/sources',  'ApiController', 'sources');
 $router->add('POST', '/api/arquivo',       'ApiController', 'arquivoStore');
 $router->add('POST', '/api/arquivo/remover', 'ApiController', 'arquivoRemove');
 $router->add('POST', '/api/parl-count',    'ApiController', 'updateParlTotal');
+$router->add('POST', '/api/cache/invalidar',   'ApiController', 'cacheInvalidar');
+$router->add('GET',  '/api/cache/status',      'ApiController', 'cacheStatus');
+$router->add('GET',  '/api/bulk',              'ApiController', 'bulk');
+$router->add('GET',  '/api/cache/sincronizar', 'ApiController', 'sincronizar');
 
 $router->dispatch();

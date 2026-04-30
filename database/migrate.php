@@ -114,6 +114,17 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS parlamentares_cache (
     UNIQUE KEY uq_source_sapl (source_key, sapl_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
+$pdo->exec("CREATE TABLE IF NOT EXISTS sapl_cache (
+    id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    source     VARCHAR(50)  NOT NULL,
+    cache_key  VARCHAR(500) NOT NULL,
+    data       LONGTEXT     NOT NULL,
+    expires_at DATETIME     NOT NULL,
+    updated_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_source_key (source, cache_key(255)),
+    INDEX idx_expires (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
 echo "[migrate] Tabelas verificadas/criadas.\n";
 
 // ── Migrations (colunas adicionais em instalações antigas) ─────────────────

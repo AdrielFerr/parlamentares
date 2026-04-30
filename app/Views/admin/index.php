@@ -1,50 +1,66 @@
 <?php
-$isSuperAdmin  = Auth::isSuperAdmin();
-$isGlobalView  = $isSuperAdmin && ($ctx['id'] ?? null) === null;
-$clienteNome   = $ctx['nome'] ?? 'Sistema';
+$isSuperAdmin = Auth::isSuperAdmin();
+$isGlobalView = $isSuperAdmin && ($ctx['id'] ?? null) === null;
+$clienteNome  = $ctx['nome'] ?? 'Sistema';
 ?>
 
-<div style="margin-bottom:24px">
-  <h2 style="font-family:'Playfair Display',serif;font-size:22px;font-weight:800;line-height:1.1">Visão Geral</h2>
-  <p style="font-size:13px;color:var(--muted);margin-top:4px">
+<div class="cfg-hub-head">
+  <div class="cfg-hub-title">Configurações</div>
+  <p class="cfg-hub-sub">
     <?= $isGlobalView
-        ? 'Visão global do sistema — todos os clientes e projetos'
-        : 'Gerencie usuários e projetos de ' . htmlspecialchars($clienteNome) ?>
+        ? 'Visão global do sistema — gerencie usuários, clientes e aparência da plataforma'
+        : 'Gerencie usuários e configurações de ' . htmlspecialchars($clienteNome) ?>
   </p>
 </div>
 
-<div class="cfg-grid" style="margin-bottom:36px">
-  <a href="<?= BASE_PATH ?>/admin/usuarios" class="cfg-card">
-    <div class="cfg-icon"><i class="ph ph-users" style="font-size:24px;color:var(--accent)"></i></div>
-    <div class="cfg-body">
-      <div class="cfg-title">Membros da Equipe</div>
-      <div class="cfg-desc">
+<div class="hub-grid">
+
+  <a href="<?= BASE_PATH ?>/admin/usuarios" class="hub-card">
+    <div class="hub-card-icon" style="background:#eff6ff">
+      <i class="ph ph-users" style="color:#2563eb"></i>
+    </div>
+    <div class="hub-card-body">
+      <div class="hub-card-title">Membros da Equipe</div>
+      <div class="hub-card-desc">
         <?= $isGlobalView
-            ? 'Gerencie todos os usuários do sistema.'
+            ? 'Gerencie todos os usuários cadastrados no sistema.'
             : 'Gerencie os usuários de ' . htmlspecialchars($clienteNome) . '.' ?>
       </div>
     </div>
-    <div class="cfg-arrow"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg></div>
   </a>
 
-  <a href="<?= BASE_PATH ?>/perfil" class="cfg-card">
-    <div class="cfg-icon"><i class="ph ph-user-circle" style="font-size:24px;color:var(--accent)"></i></div>
-    <div class="cfg-body">
-      <div class="cfg-title">Meu Perfil</div>
-      <div class="cfg-desc">Atualize seu nome, e-mail e senha de acesso.</div>
+  <a href="<?= BASE_PATH ?>/perfil" class="hub-card">
+    <div class="hub-card-icon" style="background:#f0fdfa">
+      <i class="ph ph-user-circle" style="color:#0891b2"></i>
     </div>
-    <div class="cfg-arrow"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg></div>
+    <div class="hub-card-body">
+      <div class="hub-card-title">Meu Perfil</div>
+      <div class="hub-card-desc">Atualize seu nome, e-mail e senha de acesso à plataforma.</div>
+    </div>
   </a>
 
   <?php if ($isGlobalView): ?>
-  <a href="<?= BASE_PATH ?>/admin/clientes" class="cfg-card">
-    <div class="cfg-icon"><i class="ph ph-buildings" style="font-size:24px;color:var(--accent)"></i></div>
-    <div class="cfg-body">
-      <div class="cfg-title">Clientes</div>
-      <div class="cfg-desc">Gerencie os clientes e suas organizações cadastradas no sistema.</div>
+  <a href="<?= BASE_PATH ?>/admin/clientes" class="hub-card">
+    <div class="hub-card-icon" style="background:#fff7ed">
+      <i class="ph ph-buildings" style="color:#ea580c"></i>
     </div>
-    <div class="cfg-arrow"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg></div>
+    <div class="hub-card-body">
+      <div class="hub-card-title">Clientes</div>
+      <div class="hub-card-desc">Gerencie os clientes e suas organizações cadastradas no sistema.</div>
+    </div>
   </a>
   <?php endif; ?>
-</div>
 
+  <?php if ($isGlobalView): ?>
+  <a href="<?= BASE_PATH ?>/admin/aparencia" class="hub-card">
+    <div class="hub-card-icon" style="background:#faf5ff">
+      <i class="ph ph-paint-brush" style="color:#7c3aed"></i>
+    </div>
+    <div class="hub-card-body">
+      <div class="hub-card-title">Aparência</div>
+      <div class="hub-card-desc">Personalize a logo e a cor principal da plataforma para todos os clientes.</div>
+    </div>
+  </a>
+  <?php endif; ?>
+
+</div>

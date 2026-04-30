@@ -7,12 +7,18 @@ class ProjetosController extends Controller {
     public function index(): void {
         $this->requireAuth();
 
+        // Limpa o projeto ativo da sessão ao voltar para a lista
+        Auth::setProjeto(0, '', '[]');
+
         $model    = new Projeto();
         $user     = Auth::user();
 
         /* Carrega projetos conforme nível de acesso */
         if (Auth::isSuperAdmin()) {
             $projetos = $model->allWithCliente();
+        } elseif (Auth::nivel() === 1 && Auth::clienteId() === null) {
+            // Administrador do sistema: só vê projetos explicitamente atribuídos
+            $projetos = $model->byAdminUser((int)Auth::id());
         } else {
             $projetos = $model->byCliente((int)$user['cliente_id']);
         }
@@ -23,11 +29,12 @@ class ProjetosController extends Controller {
         }
         unset($p);
 
-        $fontes   = (new FonteLegislativa())->allOrdered();
-        $clientes = Auth::isSuperAdmin() ? (new Cliente())->allAtivos() : [];
+        $fontes     = (new FonteLegislativa())->allOrdered();
+        $clientes   = Auth::isSuperAdmin() ? (new Cliente())->allAtivos() : [];
+        $adminUsers = Auth::isSuperAdmin() ? (new Usuario())->allAdministradores() : [];
 
         /* Usa layout 'projetos' (sem sidebar) */
-        $this->render('projetos/index', compact('projetos', 'fontes', 'clientes'), 'projetos');
+        $this->render('projetos/index', compact('projetos', 'fontes', 'clientes', 'adminUsers'), 'projetos');
     }
 
     /* ────────────────────────────────────────────────────────────
@@ -72,6 +79,7 @@ class ProjetosController extends Controller {
 
         /* Não expõe a chave criptografada; indica apenas se existe */
         unset($projeto['openai_key_enc']);
+        $projeto['admin_ids'] = $model->getAdminIds($id);
         $this->json($projeto);
     }
 
@@ -90,6 +98,9 @@ class ProjetosController extends Controller {
 
         $apiKey = trim($_POST['openai_key'] ?? '');
         if ($apiKey) $model->setApiKey($id, $apiKey);
+
+        $adminIds = json_decode($_POST['admin_ids'] ?? '[]', true) ?: [];
+        $model->setAdmins($id, $adminIds);
 
         $this->json(['ok' => true, 'id' => $id]);
     }
@@ -112,6 +123,9 @@ class ProjetosController extends Controller {
 
         $apiKey = trim($_POST['openai_key'] ?? '');
         if ($apiKey) $model->setApiKey($id, $apiKey);
+
+        $adminIds = json_decode($_POST['admin_ids'] ?? '[]', true) ?: [];
+        $model->setAdmins($id, $adminIds);
 
         /* Atualiza sessão se o projeto editado estiver ativo */
         if ((int)Auth::projetoId() === $id) {
@@ -230,6 +244,11 @@ class ProjetosController extends Controller {
     /* Verifica se o usuário logado pode acessar o projeto */
     private function validarAcessoProjeto(array $projeto): bool {
         if (Auth::isSuperAdmin()) return true;
-        return (int)($projeto['cliente_id'] ?? 0) === (int)Auth::clienteId();
+        return (new Projeto())->canAccess(
+            (int)$projeto['id'],
+            (int)Auth::id(),
+            Auth::nivel(),
+            Auth::clienteId()
+        );
     }
 }

@@ -30,6 +30,117 @@ class ApiController extends Controller {
         exit;
     }
 
+    public function bulk(): void {
+        $this->requireAuth();
+        $source = $_GET['source'] ?? DEFAULT_SOURCE;
+
+        $paths = [
+            'parlamentares' => '/parlamentares/parlamentar/',
+            'legislaturas'  => '/parlamentares/legislatura/',
+            'partidos'      => '/parlamentares/partido/',
+        ];
+
+        $result = ['parlamentares' => [], 'legislaturas' => [], 'partidos' => [], 'fromCache' => true];
+
+        foreach ($paths as $key => $path) {
+            $rows = SaplCache::getByPrefix($source, $path . '&page=');
+            foreach ($rows as $data) {
+                $decoded = json_decode($data, true);
+                if (!empty($decoded['results'])) {
+                    $result[$key] = array_merge($result[$key], $decoded['results']);
+                }
+            }
+        }
+
+        if (empty($result['parlamentares']) || empty($result['legislaturas'])) {
+            $result['fromCache'] = false;
+        }
+
+        $this->json($result);
+    }
+
+    public function sincronizar(): void {
+        $this->requireAuth();
+        $source = $_GET['source'] ?? DEFAULT_SOURCE;
+
+        header('Content-Type: text/event-stream');
+        header('Cache-Control: no-cache');
+        header('Connection: keep-alive');
+        header('X-Accel-Buffering: no');
+        if (ob_get_level()) ob_end_clean();
+        set_time_limit(300);
+
+        $sse = function (array $data): void {
+            echo 'data: ' . json_encode($data) . "\n\n";
+            flush();
+        };
+
+        $paths = [
+            'parlamentares' => '/parlamentares/parlamentar/',
+            'legislaturas'  => '/parlamentares/legislatura/',
+            'partidos'      => '/parlamentares/partido/',
+        ];
+
+        // Fase 1: descobre total de páginas (busca página 1 de cada recurso se necessário)
+        $recursos   = [];
+        $totalPages = 0;
+        foreach ($paths as $key => $path) {
+            $cacheKey = $path . '&page=1';
+            $cached   = SaplCache::get($source, $cacheKey);
+            if ($cached) {
+                $decoded = json_decode($cached, true);
+            } else {
+                usleep(120_000);
+                $raw     = SaplApi::getRaw($path, $source, ['page' => 1]);
+                $decoded = json_decode($raw, true);
+                if ($raw !== '{}' && $raw !== '{"__rate_limited":true}') {
+                    SaplCache::set($source, $cacheKey, $raw, SaplCache::ttlFor($path));
+                }
+            }
+            $pages              = $decoded['pagination']['total_pages'] ?? 1;
+            $recursos[$key]     = ['path' => $path, 'pages' => $pages];
+            $totalPages        += $pages;
+        }
+
+        $done = count($paths); // páginas 1 já processadas
+        $sse(['status' => 'iniciando', 'total' => $totalPages, 'done' => $done]);
+
+        // Fase 2: busca páginas restantes com delay para não acionar rate limit
+        foreach ($recursos as $key => $info) {
+            for ($pg = 2; $pg <= $info['pages']; $pg++) {
+                if (connection_aborted()) exit;
+
+                $cacheKey = $info['path'] . '&page=' . $pg;
+                if (!SaplCache::get($source, $cacheKey)) {
+                    usleep(120_000);
+                    $raw = SaplApi::getRaw($info['path'], $source, ['page' => $pg]);
+                    if ($raw !== '{}' && $raw !== '{"__rate_limited":true}') {
+                        SaplCache::set($source, $cacheKey, $raw, SaplCache::ttlFor($info['path']));
+                    }
+                }
+
+                $done++;
+                $sse(['status' => 'progresso', 'done' => $done, 'total' => $totalPages, 'recurso' => $key]);
+            }
+        }
+
+        $sse(['status' => 'concluido', 'done' => $totalPages, 'total' => $totalPages]);
+        exit;
+    }
+
+    public function cacheInvalidar(): void {
+        $this->requireAuth();
+        $source  = $_POST['source'] ?? DEFAULT_SOURCE;
+        $removed = SaplCache::invalidate($source);
+        $this->json(['ok' => true, 'removidos' => $removed]);
+    }
+
+    public function cacheStatus(): void {
+        $this->requireAuth();
+        $source = $_GET['source'] ?? DEFAULT_SOURCE;
+        $this->json(SaplCache::stats($source));
+    }
+
     public function updateParlTotal(): void {
         $this->requireAuth();
         $projetoId = (int)Auth::projetoId();
@@ -62,6 +173,52 @@ class ApiController extends Controller {
 
         (new SentinelaArquivo())->remove($id);
         $this->json(['ok' => true]);
+    }
+
+    public function img(): void {
+        $this->requireAuth();
+        $source = $_GET['source'] ?? DEFAULT_SOURCE;
+        $path   = trim($_GET['path'] ?? '');
+
+        // Aceita caminhos de imagem (permite = para URLs do Senado como sufixo=fotoXXX.jpg)
+        if (!$path || !preg_match('#^/[a-zA-Z0-9/_\-\.=]+\.(jpg|jpeg|png|gif|webp)$#i', $path)) {
+            http_response_code(400);
+            exit;
+        }
+
+        // Domínio de imagens pode ser diferente da URL da API (Câmara, Senado)
+        $imgDomains = [
+            'camara_federal' => 'https://www.camara.leg.br',
+            'senado'         => 'https://www.senado.leg.br',
+        ];
+        $base = $imgDomains[$source] ?? SaplApi::baseUrl($source);
+        $url  = $base . $path;
+
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS      => 3,
+            CURLOPT_TIMEOUT        => 10,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYHOST => false,
+            CURLOPT_USERAGENT      => 'KeekConecta/1.0',
+        ]);
+
+        $body  = curl_exec($ch);
+        $code  = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $ctype = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+        curl_close($ch);
+
+        if (!$body || $code < 200 || $code >= 300) {
+            http_response_code(404);
+            exit;
+        }
+
+        header('Cache-Control: public, max-age=86400');
+        header('Content-Type: ' . ($ctype ?: 'image/jpeg'));
+        echo $body;
+        exit;
     }
 
     public function sources(): void {

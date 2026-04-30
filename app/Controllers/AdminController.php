@@ -41,11 +41,17 @@ class AdminController extends Controller {
 
     public function usuarios(): void {
         $this->requireAuth(1);
-        $ctx      = $this->getContextCliente();
-        $uModel   = new Usuario();
-        $usuarios = $ctx['id']
-            ? $uModel->byCliente($ctx['id'])
-            : $uModel->all('nome');
+        $ctx    = $this->getContextCliente();
+        $uModel = new Usuario();
+
+        if ($ctx['id'] !== null) {
+            // Contexto de cliente: mostra usuários desse cliente
+            $usuarios = $uModel->byCliente($ctx['id']);
+        } else {
+            // Visão global (SuperAdmin sem projeto): só usuários do sistema (sem cliente)
+            $usuarios = $uModel->allSistema();
+        }
+
         $layout = Auth::nivel() === 1 ? 'main' : 'admin';
         $this->render('admin/usuarios', compact('usuarios', 'uModel', 'ctx'), $layout);
     }
@@ -112,7 +118,7 @@ class AdminController extends Controller {
     }
 
     public function clientes(): void {
-        $this->requireAuth(0);
+        $this->requireSuperAdmin();
         $clientes = (new Cliente())->allAtivos();
         $cModel   = new Cliente();
         $ctx      = ['id' => null, 'nome' => 'Sistema'];
@@ -120,7 +126,7 @@ class AdminController extends Controller {
     }
 
     public function clienteAjaxCreate(): void {
-        $this->requireAuth(0);
+        $this->requireSuperAdmin();
         $this->verifyCsrf();
         $nome = trim($_POST['nome'] ?? '');
         if (!$nome) {
@@ -132,13 +138,13 @@ class AdminController extends Controller {
     }
 
     public function clienteForm(): void {
-        $this->requireAuth(0);
+        $this->requireSuperAdmin();
         $ctx = ['id' => null, 'nome' => 'Sistema'];
         $this->render('admin/cliente_form', compact('ctx') + ['error' => null], 'admin');
     }
 
     public function clienteStore(): void {
-        $this->requireAuth(0);
+        $this->requireSuperAdmin();
         $this->verifyCsrf();
         (new Cliente())->insert([
             'nome'  => trim($_POST['nome'] ?? ''),
@@ -148,7 +154,7 @@ class AdminController extends Controller {
     }
 
     public function clienteDestroy(): void {
-        $this->requireAuth(0);
+        $this->requireSuperAdmin();
         $this->verifyCsrf();
         $id = (int) ($_POST['id'] ?? 0);
         (new Cliente())->update($id, ['ativo' => 0]);
@@ -253,5 +259,91 @@ class AdminController extends Controller {
         }
 
         $this->render('admin/perfil', compact('error', 'success', 'ctx'), 'admin');
+    }
+
+    // ─── Aparência ────────────────────────────────────────────────────────────
+
+    private function aparenciaCid(): ?int {
+        // SuperAdmin sempre edita configurações globais (cliente_id NULL),
+        // independentemente do projeto ativo. Admins de cliente usam o próprio cliente.
+        if (Auth::isSuperAdmin()) return null;
+        $ctx = $this->getContextCliente();
+        return $ctx['id'];
+    }
+
+    public function aparencia(): void {
+        $this->requireSuperAdmin();
+        $cid     = $this->aparenciaCid();
+        $ctx     = Auth::isSuperAdmin() ? ['id' => null, 'nome' => 'Sistema'] : $this->getContextCliente();
+        $cfg     = Configuracao::forCliente($cid);
+        $success = null;
+        $error   = null;
+        $this->render('admin/aparencia', compact('ctx', 'cfg', 'success', 'error'), 'admin');
+    }
+
+    public function aparenciaSave(): void {
+        $this->requireSuperAdmin();
+        $this->verifyCsrf();
+
+        $cid   = $this->aparenciaCid();
+        $ctx   = Auth::isSuperAdmin() ? ['id' => null, 'nome' => 'Sistema'] : $this->getContextCliente();
+        $error = null;
+
+        // Cor accent
+        $cor = trim($_POST['cor_accent'] ?? '');
+        if ($cor && Configuracao::isValidHex($cor)) {
+            Configuracao::set('cor_accent', $cor, $cid);
+        } elseif ($cor) {
+            $error = 'Cor inválida. Use o formato #RRGGBB.';
+        }
+
+        // Upload de logo
+        if (!$error && isset($_FILES['logo']) && $_FILES['logo']['error'] === UPLOAD_ERR_OK) {
+            $allowed = ['image/png','image/jpeg','image/webp','image/gif'];
+            $mime    = mime_content_type($_FILES['logo']['tmp_name']);
+            if (!in_array($mime, $allowed)) {
+                $error = 'Formato de imagem inválido. Use PNG, JPG, WebP ou GIF.';
+            } elseif ($_FILES['logo']['size'] > 2 * 1024 * 1024) {
+                $error = 'A imagem não pode ter mais de 2 MB.';
+            } else {
+                $dir = ROOT . '/public/uploads/logos/';
+                if (!is_dir($dir)) mkdir($dir, 0755, true);
+                $ext      = ['image/png'=>'png','image/jpeg'=>'jpg','image/webp'=>'webp','image/gif'=>'gif'][$mime];
+                $filename = 'logo_' . ($cid ?? 'global') . '_' . time() . '.' . $ext;
+                $dest     = $dir . $filename;
+
+                // Remove logo anterior
+                $old = Configuracao::get('logo_url', $cid, '');
+                if ($old) {
+                    $oldFile = ROOT . $old;
+                    if (is_file($oldFile)) unlink($oldFile);
+                }
+
+                if (move_uploaded_file($_FILES['logo']['tmp_name'], $dest)) {
+                    Configuracao::set('logo_url', '/public/uploads/logos/' . $filename, $cid);
+                } else {
+                    $error = 'Falha ao salvar a imagem. Verifique as permissões da pasta.';
+                }
+            }
+        }
+
+        $cfg     = Configuracao::forCliente($cid);
+        $success = $error ? null : 'Aparência salva com sucesso.';
+        $this->render('admin/aparencia', compact('ctx', 'cfg', 'success', 'error'), 'admin');
+    }
+
+    public function aparenciaLogoRemove(): void {
+        $this->requireSuperAdmin();
+        $this->verifyCsrf();
+
+        $cid = $this->aparenciaCid();
+        $url = Configuracao::get('logo_url', $cid, '');
+        if ($url) {
+            $file = ROOT . $url;
+            if (is_file($file)) unlink($file);
+            Configuracao::set('logo_url', '', $cid);
+        }
+
+        $this->redirect('/admin/aparencia');
     }
 }

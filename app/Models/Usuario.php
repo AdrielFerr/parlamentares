@@ -10,8 +10,22 @@ class Usuario extends Model {
     }
 
     public function byCliente(int $clienteId): array {
-        $st = $this->db->prepare("SELECT * FROM usuarios WHERE cliente_id = ? ORDER BY nome");
+        $st = $this->db->prepare("SELECT * FROM usuarios WHERE cliente_id = ? AND ativo = 1 ORDER BY nome");
         $st->execute([$clienteId]);
+        return $st->fetchAll();
+    }
+
+    /** Usuários do sistema (sem cliente): SuperAdmin + Administrador */
+    public function allSistema(): array {
+        $st = $this->db->prepare("SELECT * FROM usuarios WHERE cliente_id IS NULL AND ativo = 1 ORDER BY nivel, nome");
+        $st->execute();
+        return $st->fetchAll();
+    }
+
+    /** Administradores do sistema (nivel=1, sem cliente) — para atribuir a projetos */
+    public function allAdministradores(): array {
+        $st = $this->db->prepare("SELECT id, nome, email FROM usuarios WHERE nivel = 1 AND cliente_id IS NULL AND ativo = 1 ORDER BY nome");
+        $st->execute();
         return $st->fetchAll();
     }
 

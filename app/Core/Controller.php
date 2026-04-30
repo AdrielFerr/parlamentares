@@ -16,6 +16,14 @@ abstract class Controller {
         Auth::require($maxNivel);
     }
 
+    protected function requireSuperAdmin(): void {
+        Auth::require(0);
+        if (!Auth::isSuperAdmin()) {
+            http_response_code(403);
+            exit('Acesso restrito ao SuperAdmin.');
+        }
+    }
+
     protected function verifyCsrf(): void {
         Auth::verifyCsrf();
     }

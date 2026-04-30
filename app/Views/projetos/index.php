@@ -214,6 +214,29 @@ foreach ($fontes as $f) {
         </button>
       </div>
 
+      <!-- Administradores com acesso (somente SuperAdmin, opcional) -->
+      <?php if (!empty($adminUsers)): ?>
+      <div style="margin-top:20px">
+        <div class="section-label">Administradores com acesso</div>
+        <p style="font-size:12px;color:#6b7280;margin-bottom:10px">Opcional — define quais administradores do sistema podem visualizar este projeto.</p>
+        <div id="adminCheckList" style="display:flex;flex-direction:column;gap:8px">
+          <?php foreach ($adminUsers as $au): ?>
+          <label style="display:flex;align-items:center;gap:10px;padding:9px 12px;border:1.5px solid #e5e7eb;border-radius:9px;cursor:pointer;transition:border-color .15s;font-size:13px"
+                 onmouseover="this.style.borderColor='#16a34a'" onmouseout="if(!this.querySelector('input').checked)this.style.borderColor='#e5e7eb'">
+            <input type="checkbox" class="admin-check" value="<?= $au['id'] ?>"
+                   style="width:16px;height:16px;accent-color:#16a34a;cursor:pointer;flex-shrink:0"
+                   onchange="this.closest('label').style.borderColor=this.checked?'#16a34a':'#e5e7eb'">
+            <div>
+              <div style="font-weight:600;color:#111827"><?= htmlspecialchars($au['nome']) ?></div>
+              <div style="font-size:11px;color:#9ca3af"><?= htmlspecialchars($au['email']) ?></div>
+            </div>
+          </label>
+          <?php endforeach; ?>
+        </div>
+      </div>
+      <?php endif; ?>
+
+
     </div><!-- /modal-body -->
 
     <div class="modal-footer">
@@ -312,6 +335,13 @@ function abrirModalEditar(id) {
       dashboards = dashboards.map(function(d){ return Object.assign({token:''}, d); });
       if (!dashboards.length) dashboards = [{ nome: 'Dashboard', url: '', icone: '📊', token: '' }];
       renderDashboards();
+      /* Administradores */
+      var adminIds = p.admin_ids || [];
+      document.querySelectorAll('.admin-check').forEach(function(cb){
+        var checked = adminIds.indexOf(parseInt(cb.value)) !== -1;
+        cb.checked = checked;
+        cb.closest('label').style.borderColor = checked ? '#16a34a' : '#e5e7eb';
+      });
     });
 
   document.getElementById('modalOverlay').classList.add('open');
@@ -349,6 +379,10 @@ function limparFormModal() {
   document.getElementById('modalErro').classList.remove('show');
   dashboards = [{ nome: 'Dashboard', url: '', icone: '📊' }];
   setModoCliente('existente');
+  document.querySelectorAll('.admin-check').forEach(function(cb){
+    cb.checked = false;
+    cb.closest('label').style.borderColor = '#e5e7eb';
+  });
 }
 
 /* ─── Auto-preenche URL ao selecionar fonte ─── */
@@ -492,6 +526,9 @@ function salvarProjeto() {
   }
 
   clientePromise.then(function(cliId) {
+    var adminIds = [];
+    document.querySelectorAll('.admin-check:checked').forEach(function(cb){ adminIds.push(parseInt(cb.value)); });
+
     const body = new URLSearchParams({
       _token:          CSRF,
       nome:            nome,
@@ -499,7 +536,8 @@ function salvarProjeto() {
       openai_key:      apiKey,
       openai_model:    modelo,
       dashboards_json: JSON.stringify(dashboards),
-      cliente_id:      cliId || ''
+      cliente_id:      cliId || '',
+      admin_ids:       JSON.stringify(adminIds)
     });
     if (id) body.append('id', id);
 
