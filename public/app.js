@@ -885,15 +885,24 @@ async function renderTabMaterias(p) {
     return buildMateriasHtml(firstResults, total, false);
   }
 
-  // Carrega restante em segundo plano — sem atualizar o DOM durante o carregamento
+  // Carrega restante em segundo plano com atualizações progressivas
   const parlId = p.id;
-  const allPromise = fetchAllPages(basePath, null, 400, firstData, null).then(items=>({items,total}));
+
+  const allPromise = (async () => {
+    const remaining = await fetchAllPages(basePath, null, 400, firstData, (allItems) => {
+      // onBatch recebe o array completo acumulado até agora
+      if(activeTab!=='materias' || currentProfile?.id!==parlId) return;
+      const el=document.getElementById('tabContent');
+      if(el) el.innerHTML=buildMateriasHtml(allItems, total, true);
+    });
+    return {items: remaining, total};
+  })();
 
   tabDataCache[p.id].mat_tipos = allPromise.catch(e => {
     delete tabDataCache[p.id]?.mat_tipos; throw e;
   });
 
-  // Quando terminar: salva no sessionStorage e re-renderiza
+  // Quando terminar: salva no sessionStorage e re-renderiza sem o banner
   allPromise.then(({items}) => {
     sessionTabSave(parlId, 'mat_tipos', {items, total});
     if(activeTab!=='materias' || currentProfile?.id!==parlId) return;
@@ -901,8 +910,8 @@ async function renderTabMaterias(p) {
     if(el) el.innerHTML=buildMateriasHtml(items, total, false);
   }).catch(()=>{});
 
-  // Exibe spinner enquanto carrega (dados de página 1 insuficientes para agrupamento parcial)
-  return buildMateriasHtml([], total, true);
+  // Exibe primeira página imediatamente com banner "carregando..."
+  return buildMateriasHtml(firstResults, total, totalPages > 1);
 }
 
 // ── Matéria Detail ──

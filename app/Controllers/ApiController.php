@@ -2,6 +2,7 @@
 class ApiController extends Controller {
     public function proxy(): void {
         $this->requireAuth();
+        session_write_close(); // libera o lock de sessão para permitir requisições paralelas
 
         $source = $_GET['source'] ?? DEFAULT_SOURCE;
         $path   = $_GET['path']   ?? '';
@@ -24,14 +25,34 @@ class ApiController extends Controller {
             }
         }
 
+        // Cache key normalizado: path + params ordenados
+        ksort($extra);
+        $cacheKey = $path . ($extra ? '&' . http_build_query($extra) : '');
+
+        $cached = SaplCache::get($source, $cacheKey);
+        if ($cached !== null) {
+            header('Content-Type: application/json; charset=utf-8');
+            header('X-Cache: HIT');
+            echo $cached;
+            exit;
+        }
+
         $body = SaplApi::getRaw($path, $source, $extra);
+
+        // Só armazena respostas válidas
+        if ($body !== '{}' && !str_contains($body, '__rate_limited')) {
+            SaplCache::set($source, $cacheKey, $body, SaplCache::ttlFor($path));
+        }
+
         header('Content-Type: application/json; charset=utf-8');
+        header('X-Cache: MISS');
         echo $body;
         exit;
     }
 
     public function bulk(): void {
         $this->requireAuth();
+        session_write_close();
         $source = $_GET['source'] ?? DEFAULT_SOURCE;
 
         $paths = [
@@ -61,6 +82,7 @@ class ApiController extends Controller {
 
     public function sincronizar(): void {
         $this->requireAuth();
+        session_write_close();
         $source = $_GET['source'] ?? DEFAULT_SOURCE;
 
         header('Content-Type: text/event-stream');
