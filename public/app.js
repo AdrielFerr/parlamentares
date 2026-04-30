@@ -657,7 +657,29 @@ function initDashboardCharts() {
 }
 
 function semDados(msg){
-  return `<div class="empty-tab"><i class="ph ph-info" style="font-size:28px;color:var(--muted);display:block;margin-bottom:10px"></i><p style="font-weight:600;color:var(--text);margin-bottom:4px">${msg}</p><p style="font-size:12px;color:var(--muted)">Esta informação não está disponível na fonte de dados atual.</p></div>`;
+  return `<div class="empty-tab"><i class="ph ph-magnifying-glass" style="font-size:28px;color:var(--muted);display:block;margin-bottom:10px"></i><p style="font-weight:600;color:var(--text);margin-bottom:4px">${msg}</p><p style="font-size:12px;color:var(--muted)">Nenhum registro encontrado para este parlamentar nesta fonte.</p></div>`;
+}
+
+function semModulo(msg){
+  return `<div class="empty-tab"><i class="ph ph-prohibit" style="font-size:28px;color:#93c5fd;display:block;margin-bottom:10px"></i><p style="font-weight:600;color:var(--text);margin-bottom:4px">${msg}</p><p style="font-size:12px;color:var(--muted)">Esta fonte de dados não registra este tipo de informação.</p></div>`;
+}
+
+function getSourceCap() {
+  return getCached('global', 'sourcecap', async () => {
+    const check = async (path) => {
+      try {
+        const d = await fetchWithRetry(proxyUrl(path, {page:1}));
+        return (d?.pagination?.total_entries ?? 0) > 0;
+      } catch(e) { return true; }
+    };
+    const [normas, comissoes, relatorias, frentes] = await Promise.all([
+      check('/norma/autorianorma/'),
+      check('/comissoes/participacao/'),
+      check('/materia/relatoria/'),
+      check('/parlamentares/frenteparlamentar/'),
+    ]);
+    return {normas, comissoes, relatorias, frentes};
+  });
 }
 
 // ── Tab: Início ──
@@ -1078,8 +1100,11 @@ async function renderTabNormas(p) {
     } catch(e) {}
   }
 
-  const normas=await getCached(p.id,'normas',()=>fetchAllPages(`/norma/autorianorma/?autor=${autorData.id}`));
-  if(!normas.length) return semDados('Nenhuma norma jurídica encontrada');
+  const [normas, capN]=await Promise.all([
+    getCached(p.id,'normas',()=>fetchAllPages(`/norma/autorianorma/?autor=${autorData.id}`)),
+    getSourceCap(),
+  ]);
+  if(!normas.length) return capN.normas ? semDados('Nenhuma norma jurídica encontrada para este parlamentar') : semModulo('Esta fonte não utiliza Normas Jurídicas');
 
   const primeiros=normas.filter(n=>n.primeiro_autor);
   const coautores=normas.filter(n=>!n.primeiro_autor);
@@ -1218,9 +1243,12 @@ async function renderTabFiliacoes(p) {
 
 // ── Tab: Comissões ──
 async function renderTabComissoes(p) {
-  const parts=await getCached(p.id,'comissoes',()=>fetchAllPages(`/comissoes/participacao/?parlamentar=${p.id}`));
+  const [parts, capC]=await Promise.all([
+    getCached(p.id,'comissoes',()=>fetchAllPages(`/comissoes/participacao/?parlamentar=${p.id}`)),
+    getSourceCap(),
+  ]);
   parts.sort((a,b)=>(b.data_designacao||"").localeCompare(a.data_designacao||""));
-  if(!parts.length) return semDados('Nenhuma participação em comissão encontrada');
+  if(!parts.length) return capC.comissoes ? semDados('Nenhuma participação em comissão encontrada para este parlamentar') : semModulo('Esta fonte não utiliza o módulo de Comissões');
 
   let h=`<h3 class="section-title">Comissões (${parts.length})</h3>`;
   const thead='<tr><th>Título da Comissão</th><th>Cargo</th><th>Titular</th><th>Início</th><th>Encerramento</th></tr>';
@@ -1243,9 +1271,12 @@ async function renderTabComissoes(p) {
 
 // ── Tab: Relatorias ──
 async function renderTabRelatorias(p) {
-  const rels=await getCached(p.id,'relatorias',()=>fetchAllPages(`/materia/relatoria/?parlamentar=${p.id}`));
+  const [rels, capR]=await Promise.all([
+    getCached(p.id,'relatorias',()=>fetchAllPages(`/materia/relatoria/?parlamentar=${p.id}`)),
+    getSourceCap(),
+  ]);
   rels.sort((a,b)=>(b.data_designacao_relator||"").localeCompare(a.data_designacao_relator||""));
-  if(!rels.length) return semDados('Nenhuma relatoria encontrada');
+  if(!rels.length) return capR.relatorias ? semDados('Nenhuma relatoria encontrada para este parlamentar') : semModulo('Esta fonte não utiliza Relatorias');
 
   let h=`<h3 class="section-title">Relatorias (${rels.length})</h3>`;
   const thead='<tr><th>Matéria / Título da Relatoria</th><th>Comissão</th><th>Designação</th><th>Destituição</th></tr>';
@@ -1267,8 +1298,11 @@ async function renderTabRelatorias(p) {
 
 // ── Tab: Frentes ──
 async function renderTabFrentes(p) {
-  const frentes=await getCached(p.id,'frentes',()=>fetchAllPages(`/parlamentares/frenteparlamentar/?parlamentar=${p.id}`));
-  if(!frentes.length) return semDados('Nenhuma participação em frente parlamentar encontrada');
+  const [frentes, capF]=await Promise.all([
+    getCached(p.id,'frentes',()=>fetchAllPages(`/parlamentares/frenteparlamentar/?parlamentar=${p.id}`)),
+    getSourceCap(),
+  ]);
+  if(!frentes.length) return capF.frentes ? semDados('Nenhuma participação em frente parlamentar encontrada para este parlamentar') : semModulo('Esta fonte não utiliza Frentes Parlamentares');
 
   const [cargos, allFrentes]=await Promise.all([
     getCached('global','frentecargos',()=>fetchAllPages('/parlamentares/frentecargo/')),
