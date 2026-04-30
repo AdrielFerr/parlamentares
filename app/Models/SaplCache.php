@@ -55,11 +55,16 @@ class SaplCache {
     public static function ttlFor(string $path): int {
         if (str_contains($path, '/parlamentares/legislatura')) return 168; // 7 dias
         if (str_contains($path, '/parlamentares/partido'))     return 168;
+        if (str_contains($path, '/parlamentares/frente'))      return 72;  // frentes e frenteparlamentar
+        if (str_contains($path, '/parlamentares/frentecargo')) return 168;
         if (str_contains($path, '/parlamentares/parlamentar')) return 24;
         if (str_contains($path, '/parlamentares/mandato'))     return 72;
         if (str_contains($path, '/parlamentares/filiacao'))    return 72;
+        if (str_contains($path, '/base/autor'))                return 48;
         if (str_contains($path, '/comissoes/'))                return 48;
+        if (str_contains($path, '/materia/relatoria'))         return 48;
         if (str_contains($path, '/materia/'))                  return 12;
+        if (str_contains($path, '/norma/tiponorma'))           return 168;
         if (str_contains($path, '/norma/'))                    return 24;
         return 24;
     }
