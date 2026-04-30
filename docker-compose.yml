@@ -17,6 +17,8 @@ services:
       BASE_PATH: ""
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@keekconecta.com.br}
       ADMIN_PASS: ${ADMIN_PASS:-keek@2025}
+    volumes:
+      - uploads_data:/var/www/html/public/uploads
     depends_on:
       db:
         condition: service_healthy
@@ -42,6 +44,7 @@ services:
 
 volumes:
   db_data:
+  uploads_data:
 
 networks:
   keek_net:

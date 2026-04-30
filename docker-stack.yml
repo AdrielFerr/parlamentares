@@ -73,9 +73,12 @@ services:
         limits:
           cpus: "1"
           memory: 512M
+    volumes:
+      - keek_uploads:/var/www/html/public/uploads
 
 volumes:
   keek_db:
+  keek_uploads:
 
 networks:
   network_public:
