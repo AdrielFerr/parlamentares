@@ -660,7 +660,8 @@ class ApiController extends Controller {
         }
 
         if (str_contains($path, '/emendas/') && $parlId) {
-            $ano = (int)($extra['ano'] ?? date('Y'));
+            $ano = (int)($extra['ano'] ?? 0);
+            if (!$ano) { preg_match('/[?&]ano=(\d+)/', $path, $m); $ano = (int)($m[1] ?? date('Y')); }
             $st  = $db->prepare(
                 "SELECT emenda_cod, numero, ano, tipo, localidade, funcao, subfuncao,
                         orgao, acao, programa,
