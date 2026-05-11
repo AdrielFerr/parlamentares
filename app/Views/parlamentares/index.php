@@ -187,8 +187,9 @@ const APP_CONFIG = {
   projetoId:   <?= (int)($projeto['id'] ?? 0) ?>,
   openaiUrl:   "<?= htmlspecialchars(BASE_PATH) ?>/api/openai",
   csrf:        "<?= htmlspecialchars(Auth::csrfToken()) ?>",
-  cacheVer:    "<?= base_convert((string)filemtime(ROOT.'/public/app.js'), 10, 36) ?>",
+  cacheVer:    "<?= base_convert((string)max(filemtime(ROOT.'/public/app.js'), filemtime(APP.'/Controllers/ApiController.php'), filemtime(ROOT.'/index.php')), 10, 36) ?>",
   nivel:       <?= (int)Auth::nivel() ?>
 };
 </script>
-<script src="<?= BASE_PATH ?>/public/app.js?v=<?= filemtime(ROOT.'/public/app.js') ?>"></script>
+<?php $appJsVer = max(filemtime(ROOT.'/public/app.js'), filemtime(APP.'/Controllers/ApiController.php'), filemtime(ROOT.'/index.php')); ?>
+<script src="<?= BASE_PATH ?>/public/app.js?v=<?= $appJsVer ?>"></script>

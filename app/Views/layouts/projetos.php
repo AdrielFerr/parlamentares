@@ -118,6 +118,11 @@ input,select,textarea{font-family:inherit}
 .card-footer{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:auto}
 .btn-edit{padding:8px 16px;background:transparent;border:1.5px solid #e5e7eb;border-radius:8px;font-size:13px;font-weight:500;color:#6b7280;transition:all .15s}
 .btn-edit:hover{border-color:#9ca3af;color:#374151}
+.btn-delete{padding:8px 14px;background:transparent;border:1.5px solid #fee2e2;border-radius:8px;color:#dc2626;display:flex;align-items:center;gap:6px;font-size:13px;font-weight:500;font-family:inherit;transition:all .15s;cursor:pointer}
+.btn-delete:hover{background:#fef2f2;border-color:#fca5a5}
+.modal-box-sm{max-width:440px}
+.btn-danger-confirm{display:inline-flex;align-items:center;gap:7px;padding:9px 18px;background:#dc2626;color:#fff;border:none;border-radius:9px;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer;transition:background .15s}
+.btn-danger-confirm:hover{background:#b91c1c}
 .btn-select{padding:9px 22px;background:#16a34a;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;transition:background .15s,transform .1s}
 .btn-select:hover{background:#15803d}
 .btn-select:active{transform:scale(.97)}
