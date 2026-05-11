@@ -1,6 +1,6 @@
 <?php
 $paleta = ['#16a34a','#2563eb','#9333ea','#ea580c','#0891b2','#db2777','#ca8a04'];
-$lvls   = ['SuperAdmin','Administrador','Gestor','Analista','Visualizador'];
+$lvls   = ['SuperAdmin', 'Admin', 'Cliente'];
 function uAvatar(string $nome, array $paleta): array {
     $partes  = array_filter(explode(' ', trim($nome)));
     $ini     = strtoupper(substr($partes[0] ?? 'U', 0, 1) . substr(end($partes) ?? '', 0, 1));
@@ -19,7 +19,7 @@ function uAvatar(string $nome, array $paleta): array {
   <div>
     <h1 id="pageTitle" style="font-family:'Playfair Display',serif;font-size:22px;font-weight:800;line-height:1.1">Membros da Equipe</h1>
     <?php if (($ctx['id'] ?? null) === null && Auth::isSuperAdmin()): ?>
-    <p id="pageSub" style="font-size:13px;color:var(--muted);margin-top:4px">Administradores do sistema (SuperAdmin e Administrador sem cliente vinculado).</p>
+    <p id="pageSub" style="font-size:13px;color:var(--muted);margin-top:4px">Usuários do sistema (SuperAdmin e Admin sem cliente vinculado).</p>
     <?php else: ?>
     <p id="pageSub" style="font-size:13px;color:var(--muted);margin-top:4px">Gerencie os usuários de <strong><?= htmlspecialchars($ctx['nome'] ?? '') ?></strong>.</p>
     <?php endif; ?>
@@ -144,14 +144,12 @@ function uAvatar(string $nome, array $paleta): array {
         <label>Nível de acesso</label>
         <select name="nivel" class="form-select">
           <?php if (Auth::isSuperAdmin() && ($ctx['id'] ?? null) === null): ?>
-          <option value="0">0 — SuperAdmin</option>
+          <option value="0">SuperAdmin</option>
           <?php endif; ?>
           <?php if (Auth::nivel() <= 1): ?>
-          <option value="1">1 — ClienteAdmin</option>
+          <option value="1">Admin</option>
           <?php endif; ?>
-          <option value="2">2 — Gestor</option>
-          <option value="3">3 — Analista</option>
-          <option value="4" selected>4 — Visualizador</option>
+          <option value="2" selected>Cliente</option>
         </select>
       </div>
 

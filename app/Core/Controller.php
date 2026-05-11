@@ -12,7 +12,7 @@ abstract class Controller {
         View::redirect($path);
     }
 
-    protected function requireAuth(int $maxNivel = 4): void {
+    protected function requireAuth(int $maxNivel = 2): void {
         Auth::require($maxNivel);
     }
 

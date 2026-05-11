@@ -20,6 +20,13 @@
       </div>
     <?php endif; ?>
 
+    <?php if (($_GET['reset'] ?? '') === 'ok'): ?>
+      <div style="background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;border-radius:8px;padding:12px 16px;font-size:14px;margin-bottom:22px;display:flex;align-items:center;gap:8px">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        Senha redefinida com sucesso! Faça login com a nova senha.
+      </div>
+    <?php endif; ?>
+
     <form method="POST" action="<?= BASE_PATH ?>/login">
       <input type="hidden" name="_token" value="<?= $csrf ?>">
 
@@ -29,7 +36,10 @@
       </div>
 
       <div class="input-group">
-        <label for="senha">Senha</label>
+        <label for="senha" style="display:flex;justify-content:space-between;align-items:center">
+          Senha
+          <a href="<?= BASE_PATH ?>/esqueci-senha" style="font-size:12px;font-weight:500;color:var(--accent)">Esqueci minha senha</a>
+        </label>
         <input type="password" id="senha" name="senha" required placeholder="••••••••">
       </div>
 

@@ -15,6 +15,8 @@
 </div>
 <style>
 @keyframes spin{to{transform:rotate(360deg)}}
+@keyframes tbounce{0%,80%,100%{transform:translateY(0);opacity:.4}40%{transform:translateY(-7px);opacity:1}}
+@keyframes tpulse{0%,100%{transform:scale(1);opacity:.5}50%{transform:scale(1.4);opacity:1}}
 /* Reuse cmjp card/grid styles inline */
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:10px;padding-bottom:40px}
 .card{background:#fff;border-radius:12px;border:1px solid var(--border);overflow:hidden;cursor:pointer;transition:transform .2s,box-shadow .2s}
@@ -65,7 +67,7 @@
 .kpi-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px;margin-bottom:20px}
 .kpi-card{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px 12px;text-align:center}
 .kpi-icon{font-size:20px;margin-bottom:6px}
-.kpi-value{font-family:'Playfair Display',serif;font-size:24px;font-weight:800;color:var(--accent);line-height:1}
+.kpi-value{font-family:'DM Sans',sans-serif;font-size:24px;font-weight:700;color:var(--accent);line-height:1}
 .kpi-label{font-size:11px;color:var(--muted);margin-top:6px;font-weight:500;text-transform:uppercase;letter-spacing:.04em}
 .chart-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px}
 .chart-box{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:16px}
@@ -127,9 +129,11 @@ td{color:#111827}
 .agente-bubble p{margin-bottom:5px}.agente-bubble p:last-child{margin:0}
 .agente-bubble strong{font-weight:600}
 .agente-bubble ul{margin:4px 0 5px 16px}.agente-bubble li{margin-bottom:2px}
-.agente-typing{display:flex;gap:4px;padding:10px 14px}
-.agente-dot{width:6px;height:6px;border-radius:50%;background:var(--muted);animation:tblink 1.2s ease infinite}
-.agente-dot:nth-child(2){animation-delay:.2s}.agente-dot:nth-child(3){animation-delay:.4s}
+.agente-typing{display:flex;align-items:center;gap:10px;padding:10px 12px}
+.agente-typing-dots{display:flex;align-items:flex-end;gap:5px;height:18px}
+.agente-dot{width:5px;height:5px;border-radius:50%;background:var(--accent);animation:tbounce 1.1s ease infinite}
+.agente-dot:nth-child(2){animation-delay:.18s}.agente-dot:nth-child(3){animation-delay:.36s}
+.agente-typing-label{font-size:12px;color:var(--muted);font-weight:500}
 .btn-pdf{display:inline-flex;align-items:center;gap:8px;padding:9px 18px;border-radius:9px;background:var(--accent);color:#fff;font-size:13px;font-weight:600;text-decoration:none;transition:background .2s}
 .btn-pdf:hover{background:var(--accent-dark)}
 .btn-ver{padding:4px 10px;border-radius:6px;border:1.5px solid var(--border);background:#fff;font-size:11px;font-weight:600;font-family:inherit;cursor:pointer;color:var(--accent);transition:all .15s}
@@ -156,6 +160,23 @@ td{color:#111827}
 .dashboard-grid{display:flex;flex-direction:column;gap:20px}
 @media(max-width:900px){.chart-row{grid-template-columns:1fr 1fr}}
 @media(max-width:640px){.chart-row{grid-template-columns:1fr}.profile-hero{flex-direction:column;align-items:center}}
+@media(max-width:768px){
+  .grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
+  .controls{gap:8px;padding-bottom:12px}
+  .search-wrap{flex:1 1 100%;max-width:100%}
+  .toggle-group{width:100%}
+  .toggle-btn{flex:1;font-size:12px;padding:8px 10px}
+  #tabContent{padding:14px 12px}
+  .tab-btn{font-size:12px;padding:10px 10px}
+  .kpi-row{gap:8px}
+  .kpi-card{padding:10px 8px}
+  .kpi-value{font-size:20px}
+  .table-wrap{font-size:13px}
+  .materia-header{gap:8px}
+  .materia-grid{grid-template-columns:1fr}
+  .profile-back{font-size:12px;padding:6px 10px}
+  .section-title{font-size:15px}
+}
 </style>
 <script>
 const APP_CONFIG = {
@@ -166,7 +187,8 @@ const APP_CONFIG = {
   projetoId:   <?= (int)($projeto['id'] ?? 0) ?>,
   openaiUrl:   "<?= htmlspecialchars(BASE_PATH) ?>/api/openai",
   csrf:        "<?= htmlspecialchars(Auth::csrfToken()) ?>",
-  cacheVer:    "<?= base_convert((string)filemtime(ROOT.'/public/app.js'), 10, 36) ?>"
+  cacheVer:    "<?= base_convert((string)filemtime(ROOT.'/public/app.js'), 10, 36) ?>",
+  nivel:       <?= (int)Auth::nivel() ?>
 };
 </script>
-<script src="<?= BASE_PATH ?>/public/app.js"></script>
+<script src="<?= BASE_PATH ?>/public/app.js?v=<?= filemtime(ROOT.'/public/app.js') ?>"></script>

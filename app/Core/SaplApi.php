@@ -29,7 +29,7 @@ class SaplApi {
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_MAXREDIRS      => 5,
-            CURLOPT_TIMEOUT        => 15,
+            CURLOPT_TIMEOUT        => defined('SAPL_CURL_TIMEOUT') ? SAPL_CURL_TIMEOUT : 15,
             CURLOPT_SSL_VERIFYPEER => false,
             CURLOPT_SSL_VERIFYHOST => false,
             CURLOPT_USERAGENT      => 'KeekConecta/1.0',
@@ -167,6 +167,38 @@ class SaplApi {
             $camaraParams = [];
             $normalizeAs  = 'deputado_detalhe';
 
+        } elseif (preg_match('#/norma/normajuridica/(\d+)/#', $cleanPath, $dm)) {
+            return self::getCamaraProposicaoDetalhe((int)$dm[1]);
+
+        } elseif (str_contains($cleanPath, '/norma/')) {
+            $autorId = $params['autor'] ?? $params['parlamentar'] ?? '';
+            if (!$autorId) return $empty;
+            $camaraPath   = '/api/v2/proposicoes';
+            $camaraParams = [
+                'idDeputadoAutor' => (int)$autorId,
+                'codSituacao'     => 1140, // Transformado em Norma Jurídica
+                'pagina'          => $page,
+                'itens'           => 100,
+                'ordem'           => 'DESC',
+                'ordenarPor'      => 'id',
+            ];
+            $normalizeAs  = 'norma_camara';
+
+        } elseif (str_contains($cleanPath, '/emendas/')) {
+            $parlId = $params['parlamentar'] ?? '';
+            $ano    = (int)($params['ano'] ?? date('Y'));
+            if (!$parlId) return $empty;
+            $camaraPath   = '/api/v2/emendas';
+            $camaraParams = [
+                'idAutor'    => (int)$parlId,
+                'ano'        => $ano,
+                'pagina'     => $page,
+                'itens'      => 100,
+                'ordem'      => 'DESC',
+                'ordenarPor' => 'valorDotacaoAtual',
+            ];
+            $normalizeAs  = 'emenda_camara';
+
         } else {
             return $empty;
         }
@@ -273,12 +305,13 @@ class SaplApi {
                     $ano    = $d['ano']       ?? '';
                     $ementa = trim($d['ementa'] ?? '');
                     return [
-                        'id'      => $d['id'] ?? null,
-                        'tipo'    => ['sigla' => $tipo, 'descricao' => $tipo],
-                        'numero'  => $num,
-                        'ano'     => (int)$ano,
-                        'ementa'  => $ementa,
-                        '__str__' => trim("{$tipo} nº {$num}/{$ano}"),
+                        'id'               => $d['id'] ?? null,
+                        'tipo'             => ['sigla' => $tipo, 'descricao' => $tipo],
+                        'numero'           => $num,
+                        'ano'              => (int)$ano,
+                        'ementa'           => $ementa,
+                        'data_apresentacao'=> substr($d['dataApresentacao'] ?? '', 0, 10),
+                        '__str__'          => trim("{$tipo} nº {$num}/{$ano}"),
                     ];
                 }, $dados);
                 break;
@@ -293,6 +326,9 @@ class SaplApi {
                     return [
                         '__str__'       => $str,
                         'materia'       => $d['id']  ?? null,
+                        'tipo_sigla'    => $tipo,
+                        'numero'        => $num,
+                        'ementa'        => $ementa,
                         'primeiro_autor'=> true,
                         'ano'           => (int)$ano,
                     ];
@@ -391,6 +427,53 @@ class SaplApi {
                 }, $dados);
                 break;
 
+            case 'norma_camara':
+                $results = array_map(function ($p) {
+                    $tipo = $p['siglaTipo'] ?? '';
+                    $num  = $p['numero']    ?? '';
+                    $ano  = $p['ano']       ?? '';
+                    return [
+                        '__str__'        => trim("{$tipo} nº {$num}/{$ano}"),
+                        'norma'          => (int)($p['id'] ?? 0) ?: null,
+                        'primeiro_autor' => true,
+                        'tipo'           => $tipo,
+                        'numero'         => (string)$num,
+                        'ano'            => (int)$ano ?: null,
+                        'ementa'         => $p['ementa'] ?? '',
+                        'data'           => substr($p['dataApresentacao'] ?? '', 0, 10),
+                        'texto_integral' => null,
+                    ];
+                }, $dados);
+                break;
+
+            case 'emenda_camara':
+                $results = array_map(function ($d) {
+                    $tipo    = $d['tipoEmenda']         ?? '';
+                    $num     = $d['numeroEmenda']        ?? $d['codEmenda'] ?? '';
+                    $ano     = $d['ano']                 ?? '';
+                    $loc     = $d['localidadeGasto']     ?? '';
+                    $func    = $d['descFuncao']          ?? $d['funcao']    ?? '';
+                    $subfunc = $d['descSubfuncao']       ?? $d['subfuncao'] ?? '';
+                    $vDot    = (float)($d['valorDotacaoAtual'] ?? 0);
+                    $vEmp    = (float)($d['valorEmpenhado']    ?? 0);
+                    $vPag    = (float)($d['valorPago']         ?? 0);
+                    $str     = trim("{$tipo} nº {$num}/{$ano}" . ($loc ? " — {$loc}" : ''));
+                    return [
+                        '__str__'         => $str,
+                        'id'              => (string)$num,
+                        'tipo'            => $tipo,
+                        'numero'          => (string)$num,
+                        'ano'             => (int)$ano ?: null,
+                        'localidade'      => $loc,
+                        'funcao'          => $func,
+                        'subfuncao'       => $subfunc,
+                        'valor_dotacao'   => $vDot,
+                        'valor_empenhado' => $vEmp,
+                        'valor_pago'      => $vPag,
+                    ];
+                }, $dados);
+                break;
+
             default:
                 $results = $dados;
         }
@@ -429,19 +512,39 @@ class SaplApi {
         $d    = $data['dados'] ?? [];
         if (!$d) return '{}';
 
-        $tipo  = $d['siglaTipo'] ?? '';
-        $num   = $d['numero']    ?? '';
-        $ano   = $d['ano']       ?? '';
+        $tipo    = $d['siglaTipo']     ?? '';
+        $num     = $d['numero']        ?? '';
+        $ano     = $d['ano']           ?? '';
+        $dataStr = substr($d['dataApresentacao'] ?? '', 0, 10);
+        $pdfUrl  = $d['urlTeorPDF']    ?? null;
+        $status  = $d['statusProposicao'] ?? [];
+        $situacao    = $status['descricaoSituacao'] ?? '';
+        $orgaoAtual  = $status['siglaOrgao']        ?? '';
+        $regime      = $status['regime']            ?? '';
+        $despacho    = $status['despacho']          ?? '';
+        $keywords    = $d['keywords']               ?? '';
+        $descTipo    = $d['descricaoTipo']          ?? '';
+        $emTramit    = !empty($status) && !in_array(strtolower($situacao), [
+            'transformado em norma jurídica', 'arquivada', 'retirada pelo autor',
+            'prejudicada', 'rejeitada', 'vetada integralmente',
+        ]);
         return json_encode([
-            'id'               => $d['id']            ?? $id,
+            'id'               => $d['id']      ?? $id,
             '__str__'          => trim("{$tipo} nº {$num}/{$ano}"),
-            'tipo'             => $tipo,
+            'tipo'             => ['sigla' => $tipo, 'descricao' => $descTipo ?: $tipo],
             'numero'           => $num,
             'ano'              => (int)$ano,
-            'data_apresentacao'=> substr($d['dataApresentacao'] ?? '', 0, 10),
-            'ementa'           => $d['ementa']        ?? '',
-            'em_tramitacao'    => !empty($d['statusProposicao']),
-            'texto_original'   => $d['urlTeorPDF']    ?? null,
+            'data_apresentacao'=> $dataStr,
+            'data'             => $dataStr,
+            'ementa'           => $d['ementa']  ?? '',
+            'em_tramitacao'    => $emTramit,
+            'situacao'         => $situacao,
+            'orgao_atual'      => $orgaoAtual,
+            'regime_tramitacao'=> $regime ? ['id' => 0, 'descricao' => $regime] : null,
+            'despacho_atual'   => $despacho,
+            'palavras_chave'   => $keywords,
+            'texto_original'   => $pdfUrl,
+            'texto_integral'   => $pdfUrl,
         ]);
     }
 
@@ -496,15 +599,62 @@ class SaplApi {
             ]);
         };
 
+        // ── Perfil individual do senador ──────────────────────────────────────
+        if (str_contains($cleanPath, '/parlamentares/perfil')) {
+            $parlId = $params['parlamentar'] ?? '';
+            if (!$parlId) return $empty;
+            $data = $fetch($base . '/dadosabertos/senador/' . (int)$parlId);
+            $parl = $data['DetalheParlamentar']['Parlamentar'] ?? [];
+            $idn  = $parl['IdentificacaoParlamentar']   ?? [];
+            $dbs  = $parl['DadosBasicosParlamentar']    ?? [];
+            if (!$idn) return $empty;
+
+            // Profissões: endpoint separado /profissao
+            $profData  = $fetch($base . '/dadosabertos/senador/' . (int)$parlId . '/profissao');
+            $profList  = $profData['HistoricoAcademicoParlamentar']['Parlamentar']['Profissoes']['Profissao'] ?? [];
+            if (!empty($profList) && !isset($profList[0])) $profList = [$profList];
+            $profissao = implode(', ', array_column($profList, 'NomeProfissao')) ?: null;
+
+            return $wrap([[
+                'id'                  => (int)$parlId,
+                'condicaoEleitoral'   => 'Titular',
+                'biografia'           => null,
+                'dataNascimento'      => substr($dbs['DataNascimento']         ?? '', 0, 10) ?: null,
+                'municipioNascimento' => $dbs['Naturalidade']                  ?? null,
+                'ufNascimento'        => $dbs['UfNaturalidade']                ?? null,
+                'escolaridade'        => null,
+                'profissao'           => $profissao,
+                'sitePessoal'         => $idn['UrlPaginaParlamentar']          ?? null,
+                'gabinete'            => null,
+                'telefone'            => null,
+            ]]);
+
         // ── Lista de senadores em exercício ──────────────────────────────────
-        if (str_contains($cleanPath, '/parlamentares/parlamentar')) {
+        } elseif (str_contains($cleanPath, '/parlamentares/parlamentar')) {
             $data = $fetch($base . '/dadosabertos/senador/lista/atual');
             if (!$data) return $empty;
             $list = $toArray($data['ListaParlamentarEmExercicio']['Parlamentares']['Parlamentar'] ?? []);
-            $results = array_map(function ($p) {
-                $id = $p['IdentificacaoParlamentar'] ?? [];
+
+            // Busca a leg. atual para determinar titular vs suplente
+            // DescricaoParticipacao fica em Mandatos.Mandato[N], não em IdentificacaoParlamentar
+            $legAtual = $fetch($base . '/dadosabertos/senador/lista/legislatura/57');
+            $legList  = $toArray($legAtual['ListaParlamentarLegislatura']['Parlamentares']['Parlamentar'] ?? []);
+            $titularMap = [];
+            foreach ($legList as $lp) {
+                $lid      = $lp['IdentificacaoParlamentar'] ?? [];
+                $mandatos = $lp['Mandatos']['Mandato']     ?? [];
+                if ($mandatos && !isset($mandatos[0])) $mandatos = [$mandatos];
+                $mandato  = $mandatos[0] ?? [];
+                $desc     = strtolower($mandato['DescricaoParticipacao'] ?? '');
+                $cod      = (int)($lid['CodigoParlamentar'] ?? 0);
+                if ($cod) $titularMap[$cod] = ($desc === '' || str_contains($desc, 'titular'));
+            }
+
+            $results = array_map(function ($p) use ($titularMap) {
+                $id  = $p['IdentificacaoParlamentar'] ?? [];
+                $cod = (int)($id['CodigoParlamentar'] ?? 0);
                 return [
-                    'id'               => (int)($id['CodigoParlamentar']      ?? 0),
+                    'id'               => $cod,
                     'nome_parlamentar' => $id['NomeParlamentar']               ?? '',
                     'nome_completo'    => $id['NomeCompletoParlamentar']       ?? '',
                     'fotografia'       => $id['UrlFotoParlamentar']            ?? '',
@@ -512,6 +662,7 @@ class SaplApi {
                     'partido'          => ['sigla' => $id['SiglaPartidoParlamentar'] ?? ''],
                     'uf'               => $id['UfParlamentar']                 ?? '',
                     'ativo'            => true,
+                    'titular'          => $titularMap[$cod] ?? true,
                 ];
             }, $list);
             return $wrap($results);
@@ -566,17 +717,27 @@ class SaplApi {
             }
 
             if ($legNum) {
-                // Senadores de uma legislatura (para filtro de lista)
+                // Senadores de uma legislatura — DescricaoParticipacao está em Mandatos.Mandato[N]
                 $data = $fetch($base . '/dadosabertos/senador/lista/legislatura/' . (int)$legNum);
                 if (!$data) return $empty;
                 $list = $toArray($data['ListaParlamentarLegislatura']['Parlamentares']['Parlamentar'] ?? []);
                 $results = array_map(function ($p) use ($legNum) {
-                    $id   = $p['IdentificacaoParlamentar'] ?? [];
-                    $desc = strtolower($id['DescricaoParticipacao'] ?? 'titular');
+                    $id       = $p['IdentificacaoParlamentar'] ?? [];
+                    $mandatos = $p['Mandatos']['Mandato']     ?? [];
+                    if ($mandatos && !isset($mandatos[0])) $mandatos = [$mandatos];
+                    // Encontra o mandato correspondente à legislatura pedida
+                    $mandato = null;
+                    foreach ($mandatos as $m) {
+                        $l1 = (int)($m['PrimeiraLegislaturaDoMandato']['NumeroLegislatura'] ?? 0);
+                        $l2 = (int)($m['SegundaLegislaturaDoMandato']['NumeroLegislatura']  ?? 0);
+                        if ($l1 === (int)$legNum || $l2 === (int)$legNum) { $mandato = $m; break; }
+                    }
+                    $mandato = $mandato ?? ($mandatos[0] ?? []);
+                    $desc    = strtolower($mandato['DescricaoParticipacao'] ?? '');
                     return [
                         'parlamentar' => (int)($id['CodigoParlamentar'] ?? 0),
                         'legislatura' => (int)$legNum,
-                        'titular'     => str_contains($desc, 'titular'),
+                        'titular'     => ($desc === '' || str_contains($desc, 'titular')),
                     ];
                 }, $list);
                 return $wrap($results);
@@ -673,6 +834,91 @@ class SaplApi {
                 ];
             }, $list);
             return $wrap($results);
+
+        // ── Normas / Proposições aprovadas (processos encerrados) ────────────
+        } elseif (str_contains($cleanPath, '/norma/')) {
+            $parlId = $params['autor'] ?? $params['parlamentar'] ?? '';
+            $anoFiltro = (int)($params['ano'] ?? 0);
+
+            if (str_contains($cleanPath, '/tiponorma')) {
+                return $wrap([
+                    ['id' => 1, 'sigla' => 'PL',  'descricao' => 'Projeto de Lei'],
+                    ['id' => 2, 'sigla' => 'PLC', 'descricao' => 'Projeto de Lei Complementar'],
+                    ['id' => 3, 'sigla' => 'PEC', 'descricao' => 'Proposta de Emenda à Constituição'],
+                    ['id' => 4, 'sigla' => 'PDL', 'descricao' => 'Projeto de Decreto Legislativo'],
+                    ['id' => 5, 'sigla' => 'PRS', 'descricao' => 'Projeto de Resolução'],
+                ]);
+            }
+
+            if (!$parlId) return $empty;
+
+            // Usa senador/{id}/autorias — único endpoint que filtra corretamente por senador.
+            // pesquisa/lista e dadosabertos/processo ignoram codigoParlamentar/codigoAutor (bug da API).
+            // Filtra por tipo legislativo para excluir requerimentos, indicações, ofícios, etc.
+            $siglasProposta = ['PL', 'PLC', 'PLS', 'PLN', 'PLP', 'PEC', 'PDL', 'PRS', 'MPV', 'PDS', 'SFO'];
+
+            $data = $fetch($base . '/dadosabertos/senador/' . (int)$parlId . '/autorias');
+            $list = $toArray($data['MateriasAutoriaParlamentar']['Parlamentar']['Autorias']['Autoria'] ?? []);
+
+            $results = [];
+            foreach ($list as $a) {
+                $mat   = $a['Materia'] ?? [];
+                $sigla = $mat['Sigla'] ?? '';
+                if (!$sigla || !in_array($sigla, $siglasProposta)) continue;
+                $num  = $mat['Numero'] ?? '';
+                $ano  = (int)($mat['Ano'] ?? 0);
+                if ($anoFiltro && $ano !== $anoFiltro) continue;
+                $desc = trim($mat['DescricaoIdentificacao'] ?? "{$sigla} nº {$num}/{$ano}");
+                $results[] = [
+                    'id'            => (int)($mat['Codigo'] ?? 0) ?: null,
+                    '__str__'       => $desc,
+                    'tipo'          => $sigla,
+                    'numero'        => (string)$num,
+                    'ano'           => $ano ?: null,
+                    'ementa'        => $mat['Ementa'] ?? '',
+                    'data'          => substr($mat['Data'] ?? '', 0, 10),
+                    'texto_integral' => null,
+                ];
+            }
+            return $wrap($results);
+
+        // ── Matéria legislativa (detalhe) ────────────────────────────────────
+        } elseif (preg_match('#/materia/materialegislativa/(\d+)/#', $cleanPath, $dm)) {
+            $materiaId = (int)$dm[1];
+            // Busca detalhe e textos em paralelo
+            $det   = $fetch($base . '/dadosabertos/materia/' . $materiaId);
+            $textos = $fetch($base . '/dadosabertos/materia/textos/' . $materiaId);
+
+            $mat  = $det['DetalheMateria']['Materia'] ?? [];
+            $idn  = $mat['IdentificacaoMateria'] ?? [];
+            $base2 = $mat['DadosBasicosMateria']  ?? [];
+
+            $sigla  = $idn['SiglaSubtipoMateria']    ?? ($idn['DescricaoSubtipoMateria'] ?? '');
+            $num    = $idn['NumeroMateria']            ?? '';
+            $ano    = $idn['AnoMateria']               ?? '';
+            $ementa = $base2['EmentaMateria']          ?? '';
+            $tramit = ($idn['IndicadorTramitando'] ?? 'S') === 'S';
+
+            // Primeiro URL de texto disponível (senado usa sdleg-getter, não .pdf direto)
+            $pdfUrl = null;
+            $tList  = $toArray($textos['TextoMateria']['Materia']['Textos']['Texto'] ?? []);
+            if (!empty($tList[0]['UrlTexto'])) {
+                $pdfUrl = $tList[0]['UrlTexto'];
+            }
+
+            if (!$mat && !$pdfUrl) return '{}';
+
+            return json_encode([
+                'id'                => $materiaId,
+                '__str__'           => trim("{$sigla} nº {$num}/{$ano}"),
+                'tipo'              => ['sigla' => $sigla, 'descricao' => $sigla],
+                'numero'            => $num,
+                'ano'               => (int)$ano,
+                'ementa'            => $ementa,
+                'data_apresentacao' => substr($base2['DataApresentacao'] ?? '', 0, 10),
+                'em_tramitacao'     => $tramit,
+                'texto_original'    => $pdfUrl,
+            ]);
 
         } else {
             return $empty;

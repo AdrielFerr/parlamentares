@@ -19,7 +19,7 @@ let tabDataCache = {};
 
 // ── LocalStorage cache (TTL 24h) ──
 const STORAGE_TTL = 86_400_000;
-const CACHE_VER   = APP_CONFIG.cacheVer || 'v4';
+const CACHE_VER   = APP_CONFIG.cacheVer || 'v5';
 const STORAGE_KEY = `kc_${APP_CONFIG.source}_${CACHE_VER}`;
 
 function storageSave(data) {
@@ -32,6 +32,8 @@ function storageLoad() {
     const {ts, data} = JSON.parse(raw);
     if(Date.now() - ts > STORAGE_TTL) { localStorage.removeItem(STORAGE_KEY); return null; }
     if(!data?.parlamentares?.length) { localStorage.removeItem(STORAGE_KEY); return null; }
+    // Invalida cache sem campo titular (dados pré-fix)
+    if(data.parlamentares[0] && !('titular' in data.parlamentares[0])) { localStorage.removeItem(STORAGE_KEY); return null; }
     return data;
   } catch(e) { localStorage.removeItem(STORAGE_KEY); return null; }
 }
@@ -233,9 +235,7 @@ function imgSrc(p){
   if(!p.fotografia) return null;
   const src=APP_CONFIG.source||'cmjp';
   let path=p.fotografia;
-  if(path.startsWith('http')){
-    try{ path=new URL(path).pathname; }catch(e){ return null; }
-  }
+  if(path.startsWith('http')) return path; // URL externa: browser carrega direto
   return APP_CONFIG.basePath+'/api/img?source='+encodeURIComponent(src)+'&path='+encodeURIComponent(path);
 }
 function esc(s){const d=document.createElement("div");d.textContent=s||"";return d.innerHTML}
@@ -281,7 +281,7 @@ function paginateTable(items, pageSize, currentPage, renderRowFn, tableHeadHtml,
   const pageItems = items.slice(start, start+pageSize);
 
   let h = `<div class="table-wrap"><table><thead>${tableHeadHtml}</thead><tbody>`;
-  pageItems.forEach(item => { h += renderRowFn(item); });
+  pageItems.forEach((item, i) => { h += renderRowFn(item, start + i); });
   h += '</tbody></table></div>';
 
   if(totalPages>1){
@@ -321,22 +321,35 @@ function toggleGrupo(id) {
 // ══════════════════════════════════════════════════════
 function getFilteredList() {
   let list;
-  if(selectedLeg&&mandatosByLeg.length>0){
+  if(APP_CONFIG.source==='senado'){
+    // Senado: titular vem do campo p.titular (do bulk/API), não dos mandatos
+    // A API /lista/legislatura retorna todos como titular:true — inútil para filtrar
+    list=allParlamentares.map(p=>({...p,_tit:p.titular!==false}));
+  } else if(selectedLeg&&mandatosByLeg.length>0){
     const pids=new Set(mandatosByLeg.map(m=>m.parlamentar));
     const tids=new Set(mandatosByLeg.filter(m=>m.titular).map(m=>m.parlamentar));
     list=allParlamentares.filter(p=>pids.has(p.id)).map(p=>({...p,_tit:tids.has(p.id)}));
-    if(onlyTitular)list=list.filter(p=>p._tit);
-  }else{list=[...allParlamentares]}
+  }else{
+    list=allParlamentares.map(p=>({...p,_tit:p.titular!==false}));
+  }
+  if(onlyTitular)list=list.filter(p=>!!p._tit);
   if(onlyActive)list=list.filter(p=>!!p.ativo);
   if(search.trim()){const s=search.toLowerCase();list=list.filter(p=>(p.nome_parlamentar||"").toLowerCase().includes(s)||(p.nome_completo||"").toLowerCase().includes(s))}
   list.sort((a,b)=>(a.nome_parlamentar||"").localeCompare(b.nome_parlamentar||""));
   return list;
 }
 
+function buildLegInfo() {
+  const cl      = allLegislaturas.find(l=>String(l.id)===selectedLeg);
+  if(!cl) return '';
+  const isAtual = allLegislaturas[0] && String(allLegislaturas[0].id)===selectedLeg;
+  const badge   = isAtual ? ' <span style="font-size:.72rem;font-weight:700;background:#16a34a;color:#fff;padding:1px 7px;border-radius:99px;vertical-align:middle">atual</span>' : '';
+  return ` na ${cl.numero}ª Legislatura (${new Date(cl.data_inicio).getFullYear()}–${new Date(cl.data_fim).getFullYear()})${badge}`;
+}
+
 function renderGrid() {
   const list = getFilteredList();
-  const cl   = allLegislaturas.find(l=>String(l.id)===selectedLeg);
-  const li   = cl?` na ${cl.numero}ª Legislatura (${new Date(cl.data_inicio).getFullYear()}–${new Date(cl.data_fim).getFullYear()})`:'';
+  const li   = buildLegInfo();
   const statsEl = document.getElementById("listStats");
   const gridEl  = document.getElementById("listGrid");
   if(!statsEl||!gridEl) return renderList();
@@ -347,19 +360,11 @@ function renderGrid() {
 function renderList() {
   const main=document.getElementById("mainContent");
   const list=getFilteredList();
-  const cl=allLegislaturas.find(l=>String(l.id)===selectedLeg);
+  const li  =buildLegInfo();
 
-  let h='<div class="controls"><select onchange="onChangeLeg(this.value)"><option value="">Todas as Legislaturas</option>';
-  allLegislaturas.forEach(l=>{h+=`<option value="${l.id}"${String(l.id)===selectedLeg?" selected":""}>${l.numero}ª (${new Date(l.data_inicio).getFullYear()} – ${new Date(l.data_fim).getFullYear()})${l===allLegislaturas[0]?" (Atual)":""}</option>`});
-  h+='</select><div class="search-wrap"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>';
+  let h='<div class="controls"><div class="search-wrap"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>';
   h+=`<input type="text" id="searchInput" placeholder="Pesquisar parlamentar..." value="${esc(search)}" oninput="onSearch(this.value)"></div>`;
-  const isCamara = APP_CONFIG.source === 'camara_federal';
-  if(!isCamara){
-    h+=`<div class="toggle-group"><button class="toggle-btn${onlyActive?' active':''}" onclick="toggleActive()">Apenas Ativos</button><button class="toggle-btn${onlyTitular?' active':''}" onclick="toggleTitular()">Apenas Titulares</button></div>`;
-  }
-  h+=`<button id="btn-atualizar" onclick="atualizarDados()" title="Limpar cache e recarregar" style="margin-left:auto;display:flex;align-items:center;gap:6px;padding:7px 13px;border-radius:8px;border:1.5px solid var(--border);background:var(--surface);color:var(--muted);font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;white-space:nowrap"><i class="ph ph-arrows-clockwise"></i> Atualizar</button>`;
   h+=`</div>`;
-  const li=cl?` na ${cl.numero}ª Legislatura (${new Date(cl.data_inicio).getFullYear()}–${new Date(cl.data_fim).getFullYear()})`:'';
   h+=`<div class="stats" id="listStats"><span class="stats-badge">${list.length}</span> parlamentar${list.length!==1?'es':''} encontrado${list.length!==1?'s':''}${li}</div>`;
   h+='<div id="listGrid"></div>';
   main.innerHTML=h;
@@ -374,15 +379,23 @@ function renderList() {
 const TABS=[
   {id:'inicio',    label:'Início',               icon:'<i class="ph ph-house"></i>'},
   {id:'mandatos',  label:'Mandatos',             icon:'<i class="ph ph-calendar"></i>'},
-  {id:'materias',  label:'Matérias',             icon:'<i class="ph ph-file-text"></i>'},
+  {id:'materias',  label:'Matérias',             icon:'<i class="ph ph-file-text"></i>',    labelFor:{'camara_federal':'Proposições'}},
   {id:'normas',    label:'Normas',               icon:'<i class="ph ph-scroll"></i>'},
+  {id:'emendas',   label:'Emendas',              icon:'<i class="ph ph-money"></i>',         show:['camara_federal']},
   {id:'filiacoes', label:'Filiações Partidárias',icon:'<i class="ph ph-flag"></i>'},
   {id:'comissoes', label:'Comissões',            icon:'<i class="ph ph-users"></i>'},
   {id:'relatorias',label:'Relatorias',           icon:'<i class="ph ph-clipboard-text"></i>'},
   {id:'frentes',   label:'Frentes',              icon:'<i class="ph ph-handshake"></i>'},
   {id:'dashboard', label:'Dashboard',            icon:'<i class="ph ph-chart-bar"></i>'},
-  {id:'agente',    label:'Agente IA',            icon:'<i class="ph ph-robot"></i>'},
+  {id:'agente',    label:'Sentinela',             icon:'<i class="ph ph-robot"></i>'},
 ];
+function getVisibleTabs() {
+  const src = APP_CONFIG.source||'';
+  return TABS
+    .filter(t=>!t.hide||!t.hide.includes(src))
+    .filter(t=>!t.show||t.show.includes(src))
+    .map(t=>({...t, label:(t.labelFor&&t.labelFor[src])||t.label}));
+}
 
 async function renderProfileShell(p) {
   const n=esc(p.nome_parlamentar||p.nome_completo||"?"),nc=esc(p.nome_completo||"");
@@ -400,13 +413,15 @@ async function renderProfileShell(p) {
   if(p.telefone) h+=`<div class="detail-row"><span class="detail-label">Telefone:</span><span class="detail-value">${esc(p.telefone)}</span></div>`;
   if(p.telefone_celular) h+=`<div class="detail-row"><span class="detail-label">Celular:</span><span class="detail-value">${esc(p.telefone_celular)}</span></div>`;
   if(p.email) h+=`<div class="detail-row"><span class="detail-label">E-mail:</span><span class="detail-value"><a href="mailto:${esc(p.email)}" style="color:var(--accent)">${esc(p.email)}</a></span></div>`;
-  if(p.endereco_web) h+=`<div class="detail-row"><span class="detail-label">Homepage:</span><span class="detail-value"><a href="${esc(p.endereco_web)}" target="_blank" style="color:var(--accent)">${esc(p.endereco_web)}</a></span></div>`;
-  if(p.numero_gab_parlamentar) h+=`<div class="detail-row"><span class="detail-label">Nº Gabinete:</span><span class="detail-value">${esc(p.numero_gab_parlamentar)}</span></div>`;
+  if(p.endereco_web||p.homepage) h+=`<div class="detail-row"><span class="detail-label">Homepage:</span><span class="detail-value"><a href="${esc(p.endereco_web||p.homepage)}" target="_blank" style="color:var(--accent)">${esc(p.endereco_web||p.homepage)}</a></span></div>`;
+  if(p.numero_gab_parlamentar||p.gabinete) h+=`<div class="detail-row"><span class="detail-label">Gabinete:</span><span class="detail-value">${esc(p.numero_gab_parlamentar||p.gabinete)}</span></div>`;
   if(p.profissao) h+=`<div class="detail-row"><span class="detail-label">Profissão:</span><span class="detail-value">${esc(p.profissao)}</span></div>`;
+  if(p.escolaridade) h+=`<div class="detail-row"><span class="detail-label">Escolaridade:</span><span class="detail-value">${esc(p.escolaridade)}</span></div>`;
+  if(p.data_nascimento){const nasc=[p.municipio_nascimento,p.uf_nascimento].filter(Boolean).join(' - '); h+=`<div class="detail-row"><span class="detail-label">Nascimento:</span><span class="detail-value">${fmtDate(p.data_nascimento)}${nasc?' · '+esc(nasc):''}</span></div>`;}
   h+=`<div class="detail-row"><span class="detail-label">Situação:</span><span class="detail-value"><span class="tag" style="background:${at?'var(--accent-light)':'var(--red-light)'};color:${at?'var(--accent)':'var(--red)'}"><span class="dot ${at?'on':'off'}"></span> ${at?'Ativo':'Inativo'}</span></span></div>`;
   h+='</div></div></div>';
   h+='<div class="tabs-nav">';
-  TABS.forEach(t=>{h+=`<button class="tab-btn${activeTab===t.id?' active':''}" onclick="switchTab('${t.id}')">${t.label}</button>`});
+  getVisibleTabs().forEach(t=>{h+=`<button class="tab-btn${activeTab===t.id?' active':''}" onclick="switchTab('${t.id}')">${t.label}</button>`});
   h+='</div>';
   h+='<div id="tabContent"><div class="tab-loader"><div class="spinner"></div></div></div>';
   h+='</div>';
@@ -415,7 +430,8 @@ async function renderProfileShell(p) {
 
 async function switchTab(tabId) {
   activeTab=tabId;
-  document.querySelectorAll('.tab-btn').forEach((btn,i)=>{btn.classList.toggle('active',TABS[i].id===tabId)});
+  const vt=getVisibleTabs();
+  document.querySelectorAll('.tab-btn').forEach((btn,i)=>{btn.classList.toggle('active',vt[i]?.id===tabId)});
   const el=document.getElementById('tabContent');
   el.innerHTML='<div class="tab-loader"><div class="spinner"></div></div>';
   const p=currentProfile;
@@ -426,6 +442,7 @@ async function switchTab(tabId) {
     else if(tabId==='mandatos')  html=await renderTabMandatos(p);
     else if(tabId==='materias')  html=await renderTabMaterias(p);
     else if(tabId==='normas')    html=await renderTabNormas(p);
+    else if(tabId==='emendas')   html=await renderTabEmendas(p);
     else if(tabId==='filiacoes') html=await renderTabFiliacoes(p);
     else if(tabId==='comissoes') html=await renderTabComissoes(p);
     else if(tabId==='relatorias')html=await renderTabRelatorias(p);
@@ -434,6 +451,12 @@ async function switchTab(tabId) {
     el.innerHTML=html;
     if(tabId==='dashboard') setTimeout(initDashboardCharts,0);
     if(tabId==='agente')    setTimeout(initAgenteEvents,0);
+    const _extrasAbas=['inicio','materias','normas','emendas','filiacoes','comissoes','relatorias','frentes'];
+    if(_extrasAbas.includes(tabId) && p) {
+      fetchExtras(p.id, tabId).then(extras => {
+        if(extras.length) injectExtras(el, tabId, extras);
+      });
+    }
   }catch(e){
     console.error('[switchTab]', tabId, e);
     el.innerHTML=`<div class="empty-tab">
@@ -450,28 +473,38 @@ async function switchTab(tabId) {
 // ══════════════════════════════════════════════════════
 // TAB: DASHBOARD
 // ══════════════════════════════════════════════════════
-let dashboardAllMaterias = null;
-let dashboardAllNormas   = null;
+let dashboardAllMaterias    = null;
+let dashboardAllNormas      = null;
+let dashboardAllEmendas     = null;
 let dashboardChartInstances = {};
+let _dashEmendaAno          = new Date().getFullYear();
+let _dashEmendaFuncao       = '';
 
 async function renderTabDashboard(p) {
   const autorData = await getAutorData(p);
   if(!autorData) return `<div class="empty-tab"><i class="ph ph-user-x" style="font-size:28px;color:var(--muted);display:block;margin-bottom:10px"></i><p style="font-weight:600;color:var(--text);margin-bottom:4px">Autor não localizado na API</p><p style="font-size:12px;color:var(--muted)">O parlamentar não foi encontrado no sistema de autoria do SAPL. Isso pode ocorrer quando o nome cadastrado difere da base legislativa.</p></div>`;
 
+  const isCamaraDash = APP_CONFIG.source==='camara_federal';
+  const hasNormas = true; // camara_federal: proposições com codSituacao=1140; SAPL: normas jurídicas
+
   // Carrega tipos de matéria e norma para resolução de siglas
-  const [allMaterias, allNormasData] = await Promise.all([
+  const [allMaterias, allNormasData, , , allEmendasRaw] = await Promise.all([
     getCached(p.id,'all_materias',()=>fetchAllPages(`/materia/autoria/?autor=${autorData.id}&o=-id`)),
-    getCached(p.id,'normas',()=>fetchAllPages(`/norma/autorianorma/?autor=${autorData.id}`)),
+    hasNormas ? getCached(p.id,'normas',()=>fetchAllPages(`/norma/autorianorma/?autor=${autorData.id}`)) : Promise.resolve([]),
     !Object.keys(tipoNomes).length
       ? getCached('global','tipomateria',()=>fetchAllPages('/materia/tipomateria/')).then(ts=>{ ts.forEach(t=>{ if(t.sigla){ const s=t.sigla.toUpperCase(),d=(t.descricao||t.sigla).toUpperCase(); tipoNomes[s]=d; tipoNomesRev[d]=s; } }); }).catch(()=>{})
       : Promise.resolve(),
-    !Object.keys(normaTipoNomes).length
+    hasNormas && !Object.keys(normaTipoNomes).length
       ? getCached('global','tiponorma',()=>fetchAllPages('/norma/tiponormajuridica/')).then(ts=>{ ts.forEach(t=>{ if(t.sigla){ const s=t.sigla.toUpperCase(),d=(t.descricao||t.sigla).toUpperCase(); normaTipoNomes[s]=d; normaTipoNomesRev[d]=s; } }); }).catch(()=>{})
       : Promise.resolve(),
+    isCamaraDash
+      ? getCached(p.id,`emendas_${_dashEmendaAno}`,()=>fetchAllPages(`/emendas/parlamentar/?parlamentar=${p.id}&ano=${_dashEmendaAno}`)).catch(()=>[])
+      : Promise.resolve([]),
   ]);
 
   dashboardAllMaterias = allMaterias;
   dashboardAllNormas   = allNormasData;
+  dashboardAllEmendas  = allEmendasRaw || [];
 
   const totalMaterias  = allMaterias.length;
   const totalNormas    = allNormasData.length;
@@ -481,14 +514,14 @@ async function renderTabDashboard(p) {
   // Anos disponíveis
   const allYears = new Set();
   allMaterias.forEach(m=>{ const y=extractMateriaInfo(m).ano; if(y&&y!=='—') allYears.add(y); });
-  allNormasData.forEach(n=>{ const y=extractNormaInfo(n).ano; if(y&&y!=='—') allYears.add(y); });
+  if(hasNormas) allNormasData.forEach(n=>{ const y=extractNormaInfo(n).ano; if(y&&y!=='—') allYears.add(y); });
   const yearsArr = [...allYears].sort();
 
   // Tipos únicos com sigla para exibição no select
-  const matTiposMap  = {};  // tipoRaw → sigla label
+  const matTiposMap  = {};
   allMaterias.forEach(m=>{ const {tipoRaw,sigla}=extractMateriaInfo(m); if(!matTiposMap[tipoRaw]) matTiposMap[tipoRaw]=sigla; });
   const normTiposMap = {};
-  allNormasData.forEach(n=>{ const {tipoRaw,nome}=extractNormaInfo(n); if(!normTiposMap[tipoRaw]) normTiposMap[tipoRaw]=nome; });
+  if(hasNormas) allNormasData.forEach(n=>{ const {tipoRaw,nome}=extractNormaInfo(n); if(!normTiposMap[tipoRaw]) normTiposMap[tipoRaw]=nome; });
 
   const matTiposRaw  = Object.keys(matTiposMap).sort();
   const normTiposRaw = Object.keys(normTiposMap).sort();
@@ -497,8 +530,8 @@ async function renderTabDashboard(p) {
 
   // KPIs
   h+='<div class="kpi-row">';
-  h+=`<div class="kpi-card"><div class="kpi-value">${totalMaterias.toLocaleString('pt-BR')}</div><div class="kpi-label">Matérias</div></div>`;
-  h+=`<div class="kpi-card"><div class="kpi-value">${totalNormas.toLocaleString('pt-BR')}</div><div class="kpi-label">Normas</div></div>`;
+  h+=`<div class="kpi-card"><div class="kpi-value">${totalMaterias.toLocaleString('pt-BR')}</div><div class="kpi-label">${isCamaraDash?'Proposições':'Matérias'}</div></div>`;
+  if(hasNormas&&totalNormas>0) h+=`<div class="kpi-card"><div class="kpi-value">${totalNormas.toLocaleString('pt-BR')}</div><div class="kpi-label">${isCamaraDash?'Sancionadas':'Normas'}</div></div>`;
   h+=`<div class="kpi-card"><div class="kpi-value">${totalPrimeiro.toLocaleString('pt-BR')}</div><div class="kpi-label">1º Autor</div></div>`;
   h+=`<div class="kpi-card"><div class="kpi-value">${totalCoautoria.toLocaleString('pt-BR')}</div><div class="kpi-label">Co-participação</div></div>`;
   h+='</div>';
@@ -513,26 +546,85 @@ async function renderTabDashboard(p) {
   }
   const truncOpt=s=>s.length>55?s.slice(0,52)+'…':s;
   if(matTiposRaw.length>1){
-    h+='<select id="filterTipoMateria" onchange="applyDashFilters()" class="dash-filter-select"><option value="">Tipo de matéria</option>';
+    h+=`<select id="filterTipoMateria" onchange="applyDashFilters()" class="dash-filter-select"><option value="">${isCamaraDash?'Tipo de proposição':'Tipo de matéria'}</option>`;
     matTiposRaw.forEach(raw=>{const sigla=matTiposMap[raw]; h+=`<option value="${esc(raw)}" title="${esc(sigla)}">${esc(truncOpt(sigla))}</option>`});
     h+='</select>';
   }
-  if(normTiposRaw.length>1){
-    h+='<select id="filterTipoNorma" onchange="applyDashFilters()" class="dash-filter-select"><option value="">Tipo de norma</option>';
+  if(hasNormas && normTiposRaw.length>1){
+    h+=`<select id="filterTipoNorma" onchange="applyDashFilters()" class="dash-filter-select"><option value="">${isCamaraDash?'Tipo sancionado':'Tipo de norma'}</option>`;
     normTiposRaw.forEach(raw=>{const nome=normTiposMap[raw]; h+=`<option value="${esc(raw)}" title="${esc(nome)}">${esc(truncOpt(nome))}</option>`});
     h+='</select>';
   }
   h+='</div>';
 
-  // Gráficos 2×2
-  h+='<div class="chart-row" style="grid-template-columns:1fr 1fr">';
-  h+=`<div class="chart-box"><h3 class="section-title" style="font-size:14px;margin-bottom:12px">Matérias por Ano</h3><div style="position:relative;height:200px"><canvas id="chartProdAnual"></canvas></div></div>`;
-  h+=`<div class="chart-box"><h3 class="section-title" style="font-size:14px;margin-bottom:12px">Matérias por Tipo</h3><div style="position:relative;height:200px"><canvas id="chartMateriasTipo"></canvas></div></div>`;
-  h+=`<div class="chart-box"><h3 class="section-title" style="font-size:14px;margin-bottom:12px">Normas por Ano</h3><div style="position:relative;height:200px"><canvas id="chartNormasAnual"></canvas></div></div>`;
-  h+=`<div class="chart-box"><h3 class="section-title" style="font-size:14px;margin-bottom:12px">Normas por Tipo</h3><div style="position:relative;height:200px"><canvas id="chartNormasTipo"></canvas></div></div>`;
+  // Gráficos
+  h+=`<div class="chart-row" style="grid-template-columns:1fr 1fr">`;
+  const matLabel = isCamaraDash ? 'Proposições' : 'Matérias';
+  const normLabel = isCamaraDash ? 'Sancionadas' : 'Normas';
+  h+=`<div class="chart-box"><h3 class="section-title" style="font-size:14px;margin-bottom:12px">${matLabel} por Ano</h3><div style="position:relative;height:200px"><canvas id="chartProdAnual"></canvas></div></div>`;
+  h+=`<div class="chart-box"><h3 class="section-title" style="font-size:14px;margin-bottom:12px">${matLabel} por Tipo</h3><div style="position:relative;height:200px"><canvas id="chartMateriasTipo"></canvas></div></div>`;
+  if(hasNormas){
+    h+=`<div class="chart-box"><h3 class="section-title" style="font-size:14px;margin-bottom:12px">${normLabel} por Ano</h3><div style="position:relative;height:200px"><canvas id="chartNormasAnual"></canvas></div></div>`;
+    h+=`<div class="chart-box"><h3 class="section-title" style="font-size:14px;margin-bottom:12px">${normLabel} por Tipo</h3><div style="position:relative;height:200px"><canvas id="chartNormasTipo"></canvas></div></div>`;
+  }
   h+='</div>';
 
+  // ── Seção Emendas (só Câmara Federal, só se tiver dados) ────
+  if(isCamaraDash) {
+    h+=`<div id="dashEmendaSection">${buildDashEmendaHTML(dashboardAllEmendas, p.id)}</div>`;
+  }
+
   h+='</div>';
+  return h;
+}
+
+function buildDashEmendaHTML(emendas, parlId) {
+  if(!emendas || !emendas.length) return '';
+
+  const anoHoje = new Date().getFullYear();
+  const anosE = [];
+  for(let y=anoHoje; y>=2015; y--) anosE.push(y);
+
+  const funcoesE = [...new Set(emendas.map(e=>e.funcao||'').filter(Boolean))].sort();
+  const listaE = _dashEmendaFuncao ? emendas.filter(e=>e.funcao===_dashEmendaFuncao) : emendas;
+
+  const fmtEm  = v => v>0 ? 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—';
+  const totEmp = listaE.reduce((s,e)=>s+(e.valor_empenhado||0),0);
+  const totLiq = listaE.reduce((s,e)=>s+(e.valor_liquidado||0),0);
+  const totPag = listaE.reduce((s,e)=>s+(e.valor_pago||0),0);
+
+  const selStyleE = 'padding:5px 10px;border-radius:8px;border:1.5px solid var(--border);background:var(--surface);font-size:12px;font-family:inherit;color:var(--text)';
+
+  let h=`<div style="border-top:1px solid var(--border);margin-top:24px;padding-top:20px">`;
+  h+=`<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">`;
+  h+=`<h3 class="section-title" style="margin:0;font-size:15px">Emendas Parlamentares ${_dashEmendaAno}</h3>`;
+  h+=`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">`;
+  h+=`<select onchange="switchDashEmendaAno(${parlId},this.value)" style="${selStyleE}">`;
+  anosE.forEach(y=>{ h+=`<option value="${y}"${y===_dashEmendaAno?' selected':''}>${y}</option>`; });
+  h+=`</select>`;
+  if(funcoesE.length>1){
+    h+=`<select onchange="applyDashEmendaFiltros('funcao',this.value)" style="${selStyleE}">`;
+    h+=`<option value="">Todas as funções</option>`;
+    funcoesE.forEach(f=>{ h+=`<option value="${esc(f)}"${_dashEmendaFuncao===f?' selected':''}>${esc(f)}</option>`; });
+    h+=`</select>`;
+  }
+  if(_dashEmendaFuncao){
+    h+=`<button onclick="applyDashEmendaFiltros('funcao','')" style="padding:5px 10px;border-radius:8px;border:1.5px solid var(--border);background:none;font-size:12px;font-family:inherit;color:var(--muted);cursor:pointer">× Limpar</button>`;
+  }
+  h+=`</div></div>`;
+
+  h+=`<div class="kpi-row" style="margin-bottom:16px">`;
+  h+=`<div class="kpi-card"><div class="kpi-value">${listaE.length}</div><div class="kpi-label">Emendas</div></div>`;
+  h+=`<div class="kpi-card"><div class="kpi-value" style="font-size:12px;color:#2563eb">${fmtEm(totEmp)}</div><div class="kpi-label">Empenhado</div></div>`;
+  h+=`<div class="kpi-card"><div class="kpi-value" style="font-size:12px;color:#d97706">${fmtEm(totLiq)}</div><div class="kpi-label">Liquidado</div></div>`;
+  h+=`<div class="kpi-card"><div class="kpi-value" style="font-size:12px;color:#16a34a">${fmtEm(totPag)}</div><div class="kpi-label">Pago</div></div>`;
+  h+=`</div>`;
+
+  h+=`<div class="chart-row" style="grid-template-columns:1fr 1fr">`;
+  h+=`<div class="chart-box"><h3 class="section-title" style="font-size:14px;margin-bottom:12px">Empenhado por Função</h3><div style="position:relative;height:220px"><canvas id="chartEmendaFuncao"></canvas></div></div>`;
+  h+=`<div class="chart-box"><h3 class="section-title" style="font-size:14px;margin-bottom:12px">Top Localidades (Empenhado)</h3><div style="position:relative;height:220px"><canvas id="chartEmendaLocal"></canvas></div></div>`;
+  h+=`</div>`;
+  h+=`</div>`;
   return h;
 }
 
@@ -571,24 +663,72 @@ const barValuePlugin={
     ctx.restore();
   }
 };
+
+// Plugin local para gráficos de emendas: formata valores e ajusta posição para barras horizontais
+function makeEmendaLabelPlugin(fmt){
+  return {
+    id:'emendaValueLabels',
+    afterDatasetsDraw(chart){
+      const {ctx}=chart;
+      const isH=chart.options.indexAxis==='y';
+      ctx.save();
+      ctx.font='600 12px Arial,sans-serif';
+      ctx.fillStyle='#374151';
+      chart.data.datasets.forEach((_ds,i)=>{
+        chart.getDatasetMeta(i).data.forEach((bar,j)=>{
+          const v=chart.data.datasets[i].data[j];
+          if(!v) return;
+          if(isH){
+            ctx.textAlign='left';
+            ctx.textBaseline='middle';
+            ctx.fillText(fmt(v),bar.x+5,bar.y);
+          }else{
+            ctx.textAlign='center';
+            ctx.textBaseline='bottom';
+            ctx.fillText(fmt(v),bar.x,bar.y-3);
+          }
+        });
+      });
+      ctx.restore();
+    }
+  };
+}
 if(typeof Chart!=='undefined') Chart.register(barValuePlugin);
 
 function redrawDashCharts(materias, normas) {
   Object.values(dashboardChartInstances).forEach(c=>{try{c.destroy()}catch(e){}});
   dashboardChartInstances={};
+  // Restaura canvases que showEmpty pode ter ocultado
+  ['chartProdAnual','chartMateriasTipo','chartNormasAnual','chartNormasTipo'].forEach(id=>{
+    const c=document.getElementById(id);
+    if(c) c.style.display='';
+    const w=c?.closest('[style*="height:200px"]');
+    if(w){const m=w.querySelector('.chart-empty-msg');if(m)m.remove();}
+  });
 
   const COLORS=['#1A6B4F','#C9A84C','#3B82F6','#EC4899','#8B5CF6','#F59E0B','#10B981','#EF4444','#0EA5E9','#A855F7'];
   const font={family:"'Inter',sans-serif",size:11};
-  const emptyMsg='<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:12px;text-align:center;padding:8px">Nenhum dado disponível<br>para o filtro selecionado</div>';
-
   function mountChart(id,config){
     const canvas=document.getElementById(id);
     if(!canvas) return;
+    canvas.style.display='';
+    const wrap=canvas.closest('[style*="height:200px"]');
+    if(wrap){const m=wrap.querySelector('.chart-empty-msg');if(m)m.remove();}
     dashboardChartInstances[id]=new Chart(canvas,config);
   }
   function showEmpty(id){
-    const el=document.getElementById(id);
-    if(el) el.closest('[style*="height:200px"]').innerHTML=emptyMsg;
+    const canvas=document.getElementById(id);
+    if(!canvas) return;
+    canvas.style.display='none';
+    const wrap=canvas.closest('[style*="height:200px"]');
+    if(!wrap) return;
+    if(!wrap.querySelector('.chart-empty-msg')){
+      const d=document.createElement('div');
+      d.className='chart-empty-msg';
+      d.style.cssText='display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:12px;text-align:center;padding:8px';
+      d.innerHTML='Nenhum dado disponível<br>para o filtro selecionado';
+      wrap.appendChild(d);
+    }
   }
 
   // helper: agrupa mapa {raw:{sigla,count}} em top N + "Demais" (sem duplicar label)
@@ -654,6 +794,130 @@ function redrawDashCharts(materias, normas) {
 function initDashboardCharts() {
   if(typeof Chart==='undefined') return;
   redrawDashCharts(dashboardAllMaterias||[], dashboardAllNormas||[]);
+  redrawDashEmendaCharts(dashboardAllEmendas||[]);
+}
+
+function applyDashEmendaFiltros(campo, valor) {
+  if(campo==='funcao') _dashEmendaFuncao = valor;
+  const p = currentProfile;
+  if(!p) return;
+  const section = document.getElementById('dashEmendaSection');
+  if(!section) return;
+  section.innerHTML = buildDashEmendaHTML(dashboardAllEmendas||[], p.id);
+  setTimeout(() => redrawDashEmendaCharts(dashboardAllEmendas||[]), 0);
+}
+
+async function switchDashEmendaAno(parlId, ano) {
+  _dashEmendaAno    = parseInt(ano);
+  _dashEmendaFuncao = '';
+  const ck = `emendas_${_dashEmendaAno}`;
+  if(tabDataCache[parlId]) delete tabDataCache[parlId][ck];
+  const p = allParlamentares.find(x=>x.id===parlId)||currentProfile;
+  if(!p) return;
+  const section = document.getElementById('dashEmendaSection');
+  if(!section) return;
+  section.innerHTML = `<div style="border-top:1px solid var(--border);margin-top:24px;padding-top:28px;text-align:center;color:var(--muted);font-size:13px">Carregando emendas ${_dashEmendaAno}…</div>`;
+  dashboardAllEmendas = await getCached(parlId, ck, ()=>fetchAllPages(`/emendas/parlamentar/?parlamentar=${parlId}&ano=${_dashEmendaAno}`)).catch(()=>[]);
+  section.innerHTML = buildDashEmendaHTML(dashboardAllEmendas, parlId);
+  setTimeout(() => redrawDashEmendaCharts(dashboardAllEmendas), 0);
+}
+
+function redrawDashEmendaCharts(emendas) {
+  const ids = ['chartEmendaFuncao','chartEmendaLocal'];
+  ids.forEach(id=>{
+    if(dashboardChartInstances[id]){try{dashboardChartInstances[id].destroy();}catch(e){} delete dashboardChartInstances[id];}
+    const c=document.getElementById(id);
+    if(c) c.style.display='';
+    const w=c?.closest('[style*="height:220px"]');
+    if(w){const m=w.querySelector('.chart-empty-msg');if(m)m.remove();}
+  });
+
+  if(!emendas.length || !document.getElementById('chartEmendaFuncao')) return;
+
+  const lista = _dashEmendaFuncao ? emendas.filter(e=>e.funcao===_dashEmendaFuncao) : emendas;
+  const COLORS=['#1A6B4F','#C9A84C','#3B82F6','#EC4899','#8B5CF6','#F59E0B','#10B981','#EF4444','#0EA5E9','#A855F7'];
+  const font={family:"'Inter',sans-serif",size:11};
+  const fmtK = v => v>=1e9?'R$'+(v/1e9).toFixed(1)+'B':v>=1e6?'R$'+(v/1e6).toFixed(1)+'M':v>=1e3?'R$'+(v/1e3).toFixed(0)+'K':'R$'+v.toFixed(0);
+
+  function mountE(id,config){
+    const canvas=document.getElementById(id);
+    if(!canvas) return;
+    dashboardChartInstances[id]=new Chart(canvas,config);
+  }
+  function showEmptyE(id){
+    const canvas=document.getElementById(id);
+    if(!canvas) return;
+    canvas.style.display='none';
+    const wrap=canvas.closest('[style*="height:220px"]');
+    if(!wrap) return;
+    if(!wrap.querySelector('.chart-empty-msg')){
+      const d=document.createElement('div');
+      d.className='chart-empty-msg';
+      d.style.cssText='display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:12px;text-align:center;padding:8px';
+      d.innerHTML='Nenhum dado para o filtro selecionado';
+      wrap.appendChild(d);
+    }
+  }
+
+  // Gráfico 1: Empenhado/Pago por Função
+  const byFuncao={};
+  lista.forEach(e=>{
+    const f=e.funcao||'Não classificado';
+    if(!byFuncao[f]) byFuncao[f]={emp:0,liq:0,pag:0};
+    byFuncao[f].emp+=e.valor_empenhado||0;
+    byFuncao[f].liq+=e.valor_liquidado||0;
+    byFuncao[f].pag+=e.valor_pago||0;
+  });
+  const funcSorted=Object.entries(byFuncao).sort((a,b)=>b[1].emp-a[1].emp).slice(0,8);
+  if(funcSorted.length){
+    const fLabels=funcSorted.map(([f])=>f.length>22?f.slice(0,20)+'…':f);
+    mountE('chartEmendaFuncao',{type:'bar',
+      data:{
+        labels:fLabels,
+        datasets:[
+          {label:'Empenhado',data:funcSorted.map(([,d])=>d.emp), backgroundColor:'#2563eb', borderRadius:3},
+          {label:'Liquidado',data:funcSorted.map(([,d])=>d.liq), backgroundColor:'#d97706', borderRadius:3},
+          {label:'Pago',     data:funcSorted.map(([,d])=>d.pag), backgroundColor:'#16a34a', borderRadius:3},
+        ]
+      },
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{
+          legend:{position:'top',labels:{font,boxWidth:10,padding:8}},
+          tooltip:{callbacks:{label:ctx=>' '+fmtK(ctx.parsed.y)}},
+          barValue:false,
+        },
+        scales:{x:{ticks:{font,maxRotation:30},grid:{display:false}},y:{beginAtZero:true,ticks:{font,callback:v=>fmtK(v)},grid:{color:'rgba(0,0,0,.05)'}}}
+      },
+      plugins:[makeEmendaLabelPlugin(fmtK)],
+    });
+  } else { showEmptyE('chartEmendaFuncao'); }
+
+  // Gráfico 2: Top 10 Localidades por Empenhado
+  const byLocal={};
+  lista.forEach(e=>{ const l=e.localidade||'Não informado'; byLocal[l]=(byLocal[l]||0)+(e.valor_empenhado||0); });
+  const localSorted=Object.entries(byLocal).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]).slice(0,10);
+  if(localSorted.length){
+    const lLabels=localSorted.map(([l])=>l.length>28?l.slice(0,26)+'…':l);
+    mountE('chartEmendaLocal',{type:'bar',
+      data:{
+        labels:lLabels,
+        datasets:[{label:'Empenhado',data:localSorted.map(([,v])=>v),backgroundColor:lLabels.map((_,i)=>COLORS[i%COLORS.length]),borderRadius:3}]
+      },
+      options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,
+        plugins:{
+          legend:{display:false},
+          tooltip:{callbacks:{label:ctx=>' '+fmtK(ctx.parsed.x)}},
+          barValue:false,
+        },
+        layout:{padding:{right:72}},
+        scales:{
+          x:{beginAtZero:true,ticks:{font,callback:v=>fmtK(v)},grid:{color:'rgba(0,0,0,.05)'}},
+          y:{ticks:{font},grid:{display:false}}
+        }
+      },
+      plugins:[makeEmendaLabelPlugin(fmtK)],
+    });
+  } else { showEmptyE('chartEmendaLocal'); }
 }
 
 function semDados(msg){
@@ -665,7 +929,11 @@ function semModulo(msg){
 }
 
 function getSourceCap() {
-  return getCached('global', 'sourcecap', async () => {
+  return getCached('global', 'sourcecap_' + APP_CONFIG.source, async () => {
+    // Câmara Federal: capabilities fixas — endpoints exigem parlamentar específico
+    if(APP_CONFIG.source === 'camara_federal') {
+      return {normas: true, comissoes: true, relatorias: false, frentes: true};
+    }
     const check = async (path) => {
       try {
         const d = await fetchWithRetry(proxyUrl(path, {page:1}));
@@ -691,7 +959,7 @@ async function renderTabInicio(p) {
     if(p.locais_atuacao) h+=`<div class="info-row" style="margin-top:16px"><strong>Locais de Atuação:</strong> ${esc(p.locais_atuacao)}</div>`;
     return h;
   }
-  return semDados('Biografia não encontrada');
+  return semDados('Biografia não disponível para este parlamentar');
 }
 
 // ── Tab: Mandatos ──
@@ -720,16 +988,21 @@ async function renderTabMandatos(p) {
 
 // Extrai tipo, sigla, ano e label de um item autoria
 // __str__ esperado: "NOME PARLAMENTAR - TIPO nº NUM de ANO"
+const _tipoPattern = /^[A-Za-záàãâéêíóôõúüçÁÀÃÂÉÊÍÓÔÕÚÜÇ][A-Za-záàãâéêíóôõúüçÁÀÃÂÉÊÍÓÔÕÚÜÇ\s\.]*\s+(?:n[ºo°]|nº|\d)/i;
 function extractMateriaInfo(a) {
   const raw = stripAutoria(a.__str__||'');
   const dash = raw.indexOf(' - ');
-  const materiaStr = dash >= 0 ? raw.slice(dash+3) : raw;
+  let materiaStr, label;
+  if (dash >= 0) {
+    const before = raw.slice(0, dash);
+    if (_tipoPattern.test(before)) { materiaStr = before; label = raw; }
+    else { materiaStr = raw.slice(dash+3); label = materiaStr; }
+  } else { materiaStr = raw; label = raw; }
   const m = materiaStr.match(/^([A-Za-záàãâéêíóôõúüçÁÀÃÂÉÊÍÓÔÕÚÜÇ][A-Za-záàãâéêíóôõúüçÁÀÃÂÉÊÍÓÔÕÚÜÇ\s\.]*?)\s+(?:n[ºo°]|nº|\d)/i);
   const tipoRaw = m ? m[1].trim().toUpperCase() : 'Outros';
   const sigla   = tipoNomesRev[tipoRaw] || tipoRaw;
   const ano     = extractYear(materiaStr) || '—';
-  // tipoRaw é a chave estável (independe do momento em que tipoNomesRev é carregado)
-  return {sigla, tipoRaw, tipoNome: tipoNomes[sigla]||tipoRaw, ano, label: materiaStr||`Matéria #${a.materia}`};
+  return {sigla, tipoRaw, tipoNome: tipoNomes[sigla]||tipoRaw, ano, label: label||`Matéria #${a.materia}`};
 }
 
 // Bloco agrupado por ano → tipo (Primeiro Autor ou Co-Autor)
@@ -764,9 +1037,13 @@ function buildAutoriaGroup(title, items) {
 
 // Constrói o HTML completo da aba (título + grupos Primeiro Autor / Co-Autor)
 function buildMateriasHtml(items, total, loading=false) {
-  let h=`<h3 class="section-title">Matérias Legislativas</h3>`;
+  const isCamara = APP_CONFIG.source==='camara_federal';
+  const itemLabel = isCamara ? 'proposição' : 'matéria';
+  const itemLabelPl = isCamara ? 'proposições' : 'matérias';
+  const titleLabel = isCamara ? 'Proposições Legislativas' : 'Matérias Legislativas';
+  let h=`<h3 class="section-title">${titleLabel}</h3>`;
   h+=`<div style="font-size:13px;color:var(--muted);margin-bottom:20px">
-    <strong style="color:var(--text)">${total.toLocaleString('pt-BR')}</strong> matéria${total!==1?'s':''}
+    <strong style="color:var(--text)">${total.toLocaleString('pt-BR')}</strong> ${total!==1?itemLabelPl:itemLabel}
     ${loading?'<span id="mat-load-hint" style="font-size:11px;margin-left:10px;color:var(--accent)">· carregando...</span>':''}
   </div>`;
   if(loading&&!items.length){
@@ -799,13 +1076,14 @@ function showMateriaGrupo(tipoRaw, ano, isPrimeiro, page) {
     const totalPages=Math.max(1,Math.ceil(filtrado.length/PER_PAGE));
     page=Math.min(page,totalPages);
     const slice=filtrado.slice((page-1)*PER_PAGE, page*PER_PAGE);
+    const isCamara = APP_CONFIG.source==='camara_federal';
     const sigla=tipoNomesRev[tipoRaw]||tipoRaw;
     const nome=tipoNomes[sigla]||tipoRaw;
     const autorLabel=isPrimeiro?'Primeiro Autor':'Co-Autor';
     let h=`<button onclick="voltarParaTipos()" style="display:inline-flex;align-items:center;gap:6px;margin-bottom:20px;padding:7px 14px;border-radius:8px;border:1.5px solid var(--border);background:var(--surface);color:var(--muted);font-size:13px;font-weight:600;font-family:inherit;cursor:pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> Voltar</button>`;
-    h+=`<h3 class="section-title" style="margin-bottom:4px">${esc(sigla)} <span style="color:var(--muted);font-weight:400">— ${esc(nome)}</span></h3>`;
-    h+=`<div style="font-size:13px;color:var(--muted);margin-bottom:16px">${esc(String(ano))} · ${esc(autorLabel)} · ${filtrado.length.toLocaleString('pt-BR')} matéria${filtrado.length!==1?'s':''}</div>`;
-    h+='<div class="table-wrap"><table><thead><tr><th>Matéria</th><th>Autoria</th></tr></thead><tbody>';
+    h+=`<h3 class="section-title" style="margin-bottom:4px">${esc(sigla)} <span style="color:var(--muted);font-weight:400">— ${esc(nome||sigla)}</span></h3>`;
+    h+=`<div style="font-size:13px;color:var(--muted);margin-bottom:16px">${esc(String(ano))} · ${esc(autorLabel)} · ${filtrado.length.toLocaleString('pt-BR')} ${isCamara?'proposição':'matéria'}${filtrado.length!==1?'s':''}</div>`;
+    h+=`<div class="table-wrap"><table><thead><tr><th>${isCamara?'Proposição':'Matéria'}</th><th>Autoria</th></tr></thead><tbody>`;
     slice.forEach(a=>{
       const {label}=extractMateriaInfo(a);
       h+=`<tr>
@@ -921,11 +1199,13 @@ async function openMateria(materiaId) {
   window.scrollTo({top:0,behavior:"smooth"});
 
   try{
-    const [m, tramitacoes, autores, docs] = await Promise.all([
+    const isCamara = APP_CONFIG.source === 'camara_federal';
+    const [m, tramitacoes, autores, docs, temas] = await Promise.all([
       fetchWithRetry(proxyUrl(`/materia/materialegislativa/${materiaId}/`)),
       fetchAllPages(`/materia/tramitacao/?materia=${materiaId}`).catch(()=>[]),
       fetchAllPages(`/materia/autoria/?materia=${materiaId}`).catch(()=>[]),
       fetchAllPages(`/materia/documentosacessorio/?materia=${materiaId}`).catch(()=>[]),
+      isCamara ? fetchAllPages(`/materia/tema/?materia=${materiaId}`).catch(()=>[]) : Promise.resolve([]),
     ]);
     if(!m||!m.id) throw new Error("Matéria não encontrada");
 
@@ -934,43 +1214,127 @@ async function openMateria(materiaId) {
     let h='<div style="padding-top:28px;padding-bottom:60px">';
     h+='<button class="profile-back" onclick="closeMateria()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> Voltar</button>';
 
-    h+='<div class="materia-header">';
-    h+=`<h1 class="materia-title">${esc(m.__str__||'Matéria #'+m.id)}</h1>`;
-    if(m.em_tramitacao!==undefined){
-      h+=`<span class="tag" style="background:${m.em_tramitacao?'var(--accent-light)':'var(--red-light)'};color:${m.em_tramitacao?'var(--accent)':'var(--red)'}">${m.em_tramitacao?'Em Tramitação':'Tramitação Encerrada'}</span>`;
-    }
-    h+='</div>';
+    // ── Extrai campos de tipo e regime para usar no header e no card ─────────
+    const isCamaraDetail = APP_CONFIG.source==='camara_federal';
+    const tipoSigla=(()=>{const s=m.tipo?.sigla||m.tipo?.descricao||(typeof m.tipo==='string'?m.tipo:'')||'';if(s)return s;const raw=stripAutoria(m.__str__||'');const d=raw.indexOf(' - ');const base=d>=0?raw.slice(d+3):raw;return base.split(' nº')[0].trim();})();
+    const tipoDescr=m.tipo?.descricao&&m.tipo.descricao!==m.tipo?.sigla?m.tipo.descricao:'';
+    const regimeVal=(()=>{if(!m.regime_tramitacao)return '';return typeof m.regime_tramitacao==='object'?(m.regime_tramitacao?.descricao||''):({1:'Normal',2:'Urgência'}[m.regime_tramitacao]??'Regime '+m.regime_tramitacao);})();
+    const textoUrl=m.texto_original?(m.texto_original.startsWith('http')?m.texto_original:API_BASE+m.texto_original):null;
 
+    // ── Header: título + badge + botão documento ──────────────────────────────
+    h+='<div class="materia-header">';
+    const materiaTitle=(()=>{const raw=stripAutoria(m.__str__||'');const d=raw.indexOf(' - ');return d>=0?raw.slice(d+3):raw;})();
+    h+=`<h1 class="materia-title">${esc(materiaTitle||m.__str__||'Matéria #'+m.id)}</h1>`;
+    h+='<div style="display:flex;align-items:center;gap:8px;flex-shrink:0">';
+    if(m.em_tramitacao!=null){
+      h+=`<span class="tag" style="background:${m.em_tramitacao?'var(--accent-light)':'var(--red-light)'};color:${m.em_tramitacao?'var(--accent)':'var(--red)'}">${m.em_tramitacao?'Em Tramitação':'Encerrada'}</span>`;
+    }
+    if(textoUrl) h+=`<a href="${esc(textoUrl)}" target="_blank" class="btn-pdf" style="white-space:nowrap"><i class="ph ph-file-pdf"></i> Documento</a>`;
+    h+='</div></div>';
+
+    // ── Card principal ────────────────────────────────────────────────────────
     h+='<div class="materia-card">';
-    h+='<h3 class="section-title">Identificação Básica</h3>';
-    h+='<div class="materia-grid">';
-    if(m.tipo)              h+=`<div class="materia-field"><span class="materia-label">Tipo de Matéria</span><div class="materia-value">${esc(m.__str__?.split(' nº')[0]||'Tipo '+m.tipo)}</div></div>`;
-    if(m.ano)               h+=`<div class="materia-field"><span class="materia-label">Ano</span><div class="materia-value">${m.ano}</div></div>`;
-    if(m.numero)            h+=`<div class="materia-field"><span class="materia-label">Número</span><div class="materia-value">${m.numero}</div></div>`;
-    if(m.data_apresentacao) h+=`<div class="materia-field"><span class="materia-label">Data de Apresentação</span><div class="materia-value">${fmtDate(m.data_apresentacao)}</div></div>`;
-    if(m.numero_protocolo)  h+=`<div class="materia-field"><span class="materia-label">Nº Protocolo</span><div class="materia-value">${m.numero_protocolo}</div></div>`;
-    if(m.tipo_apresentacao) h+=`<div class="materia-field"><span class="materia-label">Tipo Apresentação</span><div class="materia-value">${m.tipo_apresentacao==='E'?'Escrita':m.tipo_apresentacao}</div></div>`;
-    if(m.regime_tramitacao) h+=`<div class="materia-field"><span class="materia-label">Regime</span><div class="materia-value">${({1:'Normal',2:'Urgência'}[m.regime_tramitacao]??'Regime '+m.regime_tramitacao)}</div></div>`;
-    h+='</div>';
+
+    // Tipo em destaque
+    if(tipoSigla){
+      h+=`<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)">`;
+      h+=`<span style="font-size:28px;font-weight:800;color:var(--accent);font-family:'Playfair Display',serif;line-height:1">${esc(tipoSigla)}</span>`;
+      if(tipoDescr) h+=`<span style="font-size:13px;color:var(--muted);line-height:1.4">${esc(tipoDescr)}</span>`;
+      h+=`</div>`;
+    }
+
+    // Números: número, ano, data
+    h+=`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:16px;margin-bottom:20px">`;
+    if(m.numero) h+=`<div><span class="materia-label">Número</span><div style="font-size:20px;font-weight:700;color:var(--text);margin-top:4px">${esc(m.numero)}</div></div>`;
+    if(m.ano)    h+=`<div><span class="materia-label">Ano</span><div style="font-size:20px;font-weight:700;color:var(--text);margin-top:4px">${m.ano}</div></div>`;
+    if(m.data_apresentacao) h+=`<div><span class="materia-label">Apresentação</span><div style="font-size:14px;color:var(--text);margin-top:4px;font-weight:500">${fmtDate(m.data_apresentacao)}</div></div>`;
+    if(m.numero_protocolo)  h+=`<div><span class="materia-label">Protocolo</span><div style="font-size:14px;color:var(--text);margin-top:4px">${esc(m.numero_protocolo)}</div></div>`;
+    h+=`</div>`;
+
+    // Status: situação + órgão + regime
+    const hasStatus=m.situacao||m.orgao_atual||regimeVal;
+    if(hasStatus){
+      h+=`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:16px;padding:16px;background:var(--bg);border-radius:10px;margin-bottom:20px">`;
+      if(m.situacao)   h+=`<div><span class="materia-label">Situação</span><div style="margin-top:6px"><span class="tag" style="background:${m.em_tramitacao?'var(--accent-light)':'#f3f4f6'};color:${m.em_tramitacao?'var(--accent)':'var(--muted)'};font-size:12px">${esc(m.situacao)}</span></div></div>`;
+      if(m.orgao_atual) h+=`<div><span class="materia-label">Órgão Atual</span><div style="margin-top:4px;font-size:14px;font-weight:600;color:var(--text)">${esc(m.orgao_atual)}</div></div>`;
+      if(regimeVal)     h+=`<div><span class="materia-label">Regime</span><div style="margin-top:4px;font-size:13px;color:var(--text)">${esc(regimeVal)}</div></div>`;
+      h+=`</div>`;
+    }
+
+    // Último despacho
+    if(m.despacho_atual){
+      h+=`<div style="padding:12px 16px;border-left:3px solid var(--accent);background:var(--accent-light);border-radius:0 8px 8px 0;margin-bottom:20px">`;
+      h+=`<span class="materia-label">Último Despacho</span>`;
+      h+=`<div style="margin-top:4px;font-size:13px;line-height:1.6;color:var(--text)">${esc(m.despacho_atual)}</div>`;
+      h+=`</div>`;
+    }
+
+    // Ementa
+    h+=`<div>`;
+    h+=`<span class="materia-label">Ementa</span>`;
     if(m.ementa){
-      h+='<div style="margin-top:20px"><span class="materia-label">Ementa</span>';
-      h+=`<div class="materia-ementa">${esc(m.ementa)}</div></div>`;
+      h+=`<div class="materia-ementa">${esc(m.ementa)}</div>`;
+    }else{
+      h+=`<div style="margin-top:4px;color:var(--muted);font-size:13px;font-style:italic">Não disponível para esta fonte legislativa.</div>`;
     }
-    if(m.texto_original){
-      const textoUrl=m.texto_original.startsWith('http')?m.texto_original:API_BASE+m.texto_original;
-      h+=`<div style="margin-top:16px"><a href="${esc(textoUrl)}" target="_blank" class="btn-pdf"><i class="ph ph-file-pdf"></i> Abrir documento</a></div>`;
+    h+=`</div>`;
+
+    // Palavras-chave
+    if(m.palavras_chave){
+      const kws=m.palavras_chave.split(/[,_]/).map(k=>k.trim()).filter(Boolean);
+      if(kws.length) h+=`<div style="margin-top:16px"><span class="materia-label">Palavras-chave</span><div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px">${kws.map(k=>`<span style="padding:3px 10px;border-radius:20px;background:#f3f4f6;color:var(--muted);font-size:12px;font-weight:500">${esc(k)}</span>`).join('')}</div></div>`;
     }
-    h+='</div>';
+
+    h+=`</div>`;
 
     if(autores.length>0){
+      const AUTORES_POR_PAG=8;
+      const hasExtra=autores.some(a=>a.tipo||a.partido);
+      window._autoresPaged={lista:autores,hasExtra,pag:0,porPag:AUTORES_POR_PAG};
+      const totalPags=Math.ceil(autores.length/AUTORES_POR_PAG);
+
+      function buildAutoresRows(pag){
+        const slice=autores.slice(pag*AUTORES_POR_PAG,(pag+1)*AUTORES_POR_PAG);
+        return slice.map(a=>{
+          const nome=(a.__str__||'').replace(/^Autoria:.*?-\s*/,'').trim()||a.__str__||'—';
+          const partyUf=[a.partido,a.uf].filter(Boolean).join('/');
+          const nomeHtml=`<span style="font-weight:500;color:#111827">${esc(nome)}</span>${partyUf?`<span style="font-size:11px;color:var(--muted);display:block">${esc(partyUf)}</span>`:''}`;
+          const tipoHtml=hasExtra?`<td style="font-size:12px;color:var(--muted)">${esc(a.tipo||'—')}</td>`:'';
+          const papel=a.primeiro_autor?'Proponente':'Coautor';
+          return `<tr><td>${nomeHtml}</td>${tipoHtml}<td><span class="td-titular ${a.primeiro_autor?'yes':'no'}">${papel}</span></td></tr>`;
+        }).join('');
+      }
+
+      window._goAutoresPag=function(dir){
+        const s=window._autoresPaged;
+        s.pag=Math.max(0,Math.min(Math.ceil(s.lista.length/s.porPag)-1,s.pag+dir));
+        document.getElementById('autores-tbody').innerHTML=buildAutoresRows(s.pag);
+        document.getElementById('autores-pag-info').textContent=`Página ${s.pag+1} de ${Math.ceil(s.lista.length/s.porPag)}`;
+        document.getElementById('autores-prev').disabled=s.pag===0;
+        document.getElementById('autores-next').disabled=s.pag>=Math.ceil(s.lista.length/s.porPag)-1;
+      };
+
       h+='<div class="materia-card">';
       h+=`<h3 class="section-title">Autores (${autores.length})</h3>`;
-      h+='<div class="table-wrap"><table><thead><tr><th>Autor</th><th>1º Autor</th></tr></thead><tbody>';
-      autores.forEach(a=>{
-        const nome=(a.__str__||'').replace(/^Autoria:.*?-\s*/,'').trim()||a.__str__||'—';
-        h+=`<tr><td style="font-weight:500;color:#111827">${esc(nome)}</td><td><span class="td-titular ${a.primeiro_autor?'yes':'no'}">${a.primeiro_autor?'Sim':'Não'}</span></td></tr>`;
-      });
-      h+='</tbody></table></div></div>';
+      h+=`<div class="table-wrap"><table><thead><tr><th>Autor</th>${hasExtra?'<th>Tipo</th>':''}<th>Papel</th></tr></thead><tbody id="autores-tbody">`;
+      h+=buildAutoresRows(0);
+      h+='</tbody></table></div>';
+      if(totalPags>1){
+        h+=`<div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:10px;font-size:13px">`;
+        h+=`<button id="autores-prev" onclick="_goAutoresPag(-1)" disabled style="padding:4px 12px;border:1px solid var(--border);border-radius:6px;background:#fff;cursor:pointer;font-size:13px">‹ Anterior</button>`;
+        h+=`<span id="autores-pag-info" style="color:var(--muted)">Página 1 de ${totalPags}</span>`;
+        h+=`<button id="autores-next" onclick="_goAutoresPag(1)" style="padding:4px 12px;border:1px solid var(--border);border-radius:6px;background:#fff;cursor:pointer;font-size:13px">Próxima ›</button>`;
+        h+='</div>';
+      }
+      h+='</div>';
+    }
+
+    if(temas&&temas.length>0){
+      h+='<div class="materia-card">';
+      h+=`<h3 class="section-title">Temas</h3>`;
+      h+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">';
+      temas.forEach(t=>{h+=`<span style="padding:4px 12px;border-radius:20px;background:var(--accent-light);color:var(--accent);font-size:12px;font-weight:500">${esc(t.tema)}</span>`;});
+      h+='</div></div>';
     }
 
     if(tramitacoes.length>0){
@@ -982,11 +1346,14 @@ async function openMateria(materiaId) {
         let destStr='';
         if(t.unidade_tramitacao_destino){const d=t.unidade_tramitacao_destino;destStr=typeof d==='string'?d:(d.__str__||d.nome||'');}
         const textoStr=t.texto||'';
+        const regimeStr=t.regime||'';
         h+=`<div class="tram-item${i===0?' tram-latest':''}"><div class="tram-dot"></div><div class="tram-content">`;
         h+=`<div class="tram-date">${fmtDate(t.data_tramitacao)}</div>`;
         if(statusStr) h+=`<div class="tram-status">${esc(statusStr)}</div>`;
+        if(regimeStr) h+=`<div class="tram-dest" style="color:var(--muted)">Regime: ${esc(regimeStr)}</div>`;
         if(destStr)   h+=`<div class="tram-dest">Destino: ${esc(destStr)}</div>`;
         if(textoStr)  h+=`<div class="tram-texto">${esc(textoStr)}</div>`;
+        if(t.url)     h+=`<a href="${esc(t.url)}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--accent);margin-top:4px"><i class="ph ph-file-text"></i> Ver documento</a>`;
         h+='</div></div>';
       });
       h+='</div></div>';
@@ -1059,7 +1426,11 @@ function closeMateria() {
 function extractNormaInfo(n) {
   const raw = stripAutoria(n.__str__||'');
   const dash = raw.indexOf(' - ');
-  const normaStr = dash >= 0 ? raw.slice(dash+3) : raw;
+  let normaStr;
+  if (dash >= 0) {
+    const before = raw.slice(0, dash);
+    normaStr = _tipoPattern.test(before) ? before : raw.slice(dash+3);
+  } else { normaStr = raw; }
   const m = normaStr.match(/^([A-Za-záàãâéêíóôõúüçÁÀÃÂÉÊÍÓÔÕÚÜÇ][A-Za-záàãâéêíóôõúüçÁÀÃÂÉÊÍÓÔÕÚÜÇ\s\.]*?)\s+(?:n[ºo°]|nº|\d)/i);
   const tipoRaw = m ? m[1].trim().toUpperCase() : 'Outros';
   const sigla   = normaTipoNomesRev[tipoRaw] || tipoRaw;
@@ -1109,22 +1480,224 @@ async function renderTabNormas(p) {
     } catch(e) {}
   }
 
+  const isCamara = APP_CONFIG.source==='camara_federal';
   const [normas, capN]=await Promise.all([
     getCached(p.id,'normas',()=>fetchAllPages(`/norma/autorianorma/?autor=${autorData.id}`)),
     getSourceCap(),
   ]);
-  if(!normas.length) return capN.normas ? semDados('Nenhuma norma jurídica encontrada para este parlamentar') : semModulo('Esta fonte não utiliza Normas Jurídicas');
+  if(!normas.length) {
+    if(isCamara||capN.normas) return semDados('Nenhuma norma jurídica / proposição sancionada encontrada para este parlamentar');
+    return semModulo('Esta fonte não utiliza Normas Jurídicas');
+  }
 
   const primeiros=normas.filter(n=>n.primeiro_autor);
   const coautores=normas.filter(n=>!n.primeiro_autor);
 
-  let h=`<h3 class="section-title">Normas Jurídicas</h3>`;
-  h+=`<div style="font-size:13px;color:var(--muted);margin-bottom:20px">
-    <strong style="color:var(--text)">${normas.length.toLocaleString('pt-BR')}</strong> norma${normas.length!==1?'s':''}
+  const normaTitle = isCamara ? 'Normas Sancionadas' : 'Normas Jurídicas';
+  const normaSubtitle = isCamara ? '<div style="font-size:12px;color:var(--muted);margin-top:2px">Proposições de autoria do(a) parlamentar que foram aprovadas e se tornaram lei</div>' : '';
+  let h=`<h3 class="section-title">${normaTitle}</h3>${normaSubtitle}`;
+  h+=`<div style="font-size:13px;color:var(--muted);margin-bottom:20px;margin-top:8px">
+    <strong style="color:var(--text)">${normas.length.toLocaleString('pt-BR')}</strong> norma${normas.length!==1?'s':(isCamara?' sancionada':'')}
   </div>`;
   if(primeiros.length) h+=buildNormaGroup('Primeiro Autor', primeiros);
   if(coautores.length) h+=buildNormaGroup('Co-Autor', coautores);
   return h;
+}
+
+// ══════════════════════════════════════════════════════
+// TAB: EMENDAS (Câmara Federal)
+// ══════════════════════════════════════════════════════
+let _emendaYear   = new Date().getFullYear();
+let _emendaFuncao = '';
+let _emendaOrgao  = '';
+let _emendaLocal  = '';
+
+async function renderTabEmendas(p) {
+  const fmtBRL = v => v>0 ? 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—';
+  const pct    = (v,total) => total>0 ? Math.round(v/total*100) : 0;
+
+  const anoHoje = new Date().getFullYear();
+  const anos = [];
+  for(let y=anoHoje; y>=2015; y--) anos.push(y);
+
+  const emendas = await getCached(p.id,`emendas_${_emendaYear}`,()=>
+    fetchAllPages(`/emendas/parlamentar/?parlamentar=${p.id}&ano=${_emendaYear}`)
+  );
+
+  // Opções únicas para filtros
+  const funcoes    = [...new Set(emendas.map(e=>e.funcao||'').filter(Boolean))].sort();
+  const orgaos     = [...new Set(emendas.map(e=>e.orgao||'').filter(Boolean))].sort();
+  const localidades= [...new Set(emendas.map(e=>e.localidade||'').filter(Boolean))].sort();
+
+  // Aplica filtros
+  const lista = emendas.filter(e=>
+    (!_emendaFuncao || e.funcao===_emendaFuncao) &&
+    (!_emendaOrgao  || e.orgao===_emendaOrgao)   &&
+    (!_emendaLocal  || e.localidade===_emendaLocal)
+  );
+
+  const totalDot = lista.reduce((s,e)=>s+(e.valor_dotacao||0),0);
+  const totalEmp = lista.reduce((s,e)=>s+(e.valor_empenhado||0),0);
+  const totalLiq = lista.reduce((s,e)=>s+(e.valor_liquidado||0),0);
+  const totalPag = lista.reduce((s,e)=>s+(e.valor_pago||0),0);
+
+  const selStyle = 'padding:5px 10px;border-radius:8px;border:1.5px solid var(--border);background:var(--surface);font-size:12px;font-family:inherit;color:var(--text);max-width:160px';
+
+  let h='<div>';
+
+  // ── Cabeçalho + ano ────────────────────────────────
+  h+=`<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">`;
+  h+=`<h3 class="section-title" style="margin:0">Emendas Parlamentares</h3>`;
+  h+=`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">`;
+  h+=`<span style="font-size:12px;color:var(--muted);font-weight:600">Ano:</span>`;
+  h+=`<select onchange="switchEmendaAno(${p.id},this.value)" style="${selStyle}">`;
+  anos.forEach(y=>{ h+=`<option value="${y}"${y===_emendaYear?' selected':''}>${y}</option>`; });
+  h+=`</select>`;
+
+  // Filtro funcao
+  h+=`<select onchange="filterEmendas(${p.id},'funcao',this.value)" style="${selStyle}" title="Filtrar por função">`;
+  h+=`<option value="">Todas as funções</option>`;
+  funcoes.forEach(f=>{ h+=`<option value="${esc(f)}"${_emendaFuncao===f?' selected':''}>${esc(f)}</option>`; });
+  h+=`</select>`;
+
+  // Filtro região (orgao = col 11 do CSV)
+  if(orgaos.length){
+    h+=`<select onchange="filterEmendas(${p.id},'orgao',this.value)" style="${selStyle}" title="Filtrar por região">`;
+    h+=`<option value="">Todas as regiões</option>`;
+    orgaos.forEach(o=>{ h+=`<option value="${esc(o)}"${_emendaOrgao===o?' selected':''}>${esc(o)}</option>`; });
+    h+=`</select>`;
+  }
+
+  // Filtro localidade
+  if(localidades.length){
+    h+=`<select onchange="filterEmendas(${p.id},'local',this.value)" style="${selStyle}" title="Filtrar por localidade">`;
+    h+=`<option value="">Todas as localidades</option>`;
+    localidades.forEach(l=>{ h+=`<option value="${esc(l)}"${_emendaLocal===l?' selected':''}>${esc(l.length>28?l.slice(0,28)+'…':l)}</option>`; });
+    h+=`</select>`;
+  }
+
+  if(_emendaFuncao||_emendaOrgao||_emendaLocal){
+    h+=`<button onclick="clearEmendaFiltros(${p.id})" style="padding:5px 10px;border-radius:8px;border:1.5px solid var(--border);background:none;font-size:12px;font-family:inherit;color:var(--muted);cursor:pointer">× Limpar</button>`;
+  }
+  h+=`</div></div>`;
+
+  if(!emendas.length){
+    h+=`<div class="empty-tab" style="padding:40px 0">
+      <i class="ph ph-money" style="font-size:32px;color:var(--muted);opacity:.4;display:block;margin-bottom:12px"></i>
+      <p style="font-weight:600;color:var(--text);margin-bottom:4px">Nenhuma emenda encontrada em ${_emendaYear}</p>
+      <p style="font-size:12px;color:var(--muted)">Tente selecionar outro ano ou verifique se o parlamentar apresentou emendas nesse período.</p>
+    </div>`;
+    h+='</div>';
+    return h;
+  }
+
+  if(!lista.length){
+    h+=`<div class="empty-tab" style="padding:30px 0">
+      <p style="font-size:14px;color:var(--muted)">Nenhuma emenda para os filtros selecionados.</p>
+    </div></div>`;
+    return h;
+  }
+
+  // ── KPIs ───────────────────────────────────────────
+  h+=`<div class="kpi-row" style="margin-bottom:16px">`;
+  h+=`<div class="kpi-card"><div class="kpi-value">${lista.length}</div><div class="kpi-label">Emendas${lista.length<emendas.length?' (filtrado)':''}</div></div>`;
+  h+=`<div class="kpi-card"><div class="kpi-value" style="font-size:13px;color:#2563eb">${fmtBRL(totalEmp)}</div><div class="kpi-label">Empenhado</div></div>`;
+  h+=`<div class="kpi-card"><div class="kpi-value" style="font-size:13px;color:#d97706">${fmtBRL(totalLiq)}</div><div class="kpi-label">Liquidado</div></div>`;
+  h+=`<div class="kpi-card"><div class="kpi-value" style="font-size:13px;color:var(--accent)">${fmtBRL(totalPag)}</div><div class="kpi-label">Pago</div></div>`;
+  h+='</div>';
+
+  // ── Barra de execução (Emp como base 100%) ──────────
+  if(totalEmp>0){
+    const pLiq = pct(totalLiq,totalEmp);
+    const pPag = pct(totalPag,totalEmp);
+    h+=`<div style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px">`;
+    h+=`<div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Execução (% do empenhado)</div>`;
+    const barRow = (label, valor, perc, cor) =>
+      `<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+        <span style="min-width:80px;font-size:12px;color:var(--muted)">${label}</span>
+        <div style="flex:1;height:10px;background:#f3f4f6;border-radius:99px;overflow:hidden">
+          <div style="width:${perc}%;height:100%;background:${cor};border-radius:99px;transition:width .4s"></div>
+        </div>
+        <span style="min-width:44px;text-align:right;font-size:12px;font-weight:600;color:${cor}">${perc}%</span>
+        <span style="font-size:11px;color:var(--muted);min-width:120px;text-align:right">${fmtBRL(valor)}</span>
+      </div>`;
+    h+=barRow('Liquidado', totalLiq, pLiq, '#d97706');
+    h+=barRow('Pago',      totalPag, pPag, '#16a34a');
+    h+=`</div>`;
+  }
+
+  // ── Agrupamento por função ──────────────────────────
+  const porFunc = {};
+  lista.forEach(e=>{
+    const f=e.funcao||'Não classificado';
+    if(!porFunc[f]) porFunc[f]={total:0,emp:0,liq:0,pag:0,itens:[]};
+    porFunc[f].total++;
+    porFunc[f].emp+=e.valor_empenhado||0;
+    porFunc[f].liq+=e.valor_liquidado||0;
+    porFunc[f].pag+=e.valor_pago||0;
+    porFunc[f].itens.push(e);
+  });
+  const funcs = Object.entries(porFunc).sort((a,b)=>b[1].emp-a[1].emp);
+
+  h+=`<div class="materia-card">`;
+  h+=`<h3 class="section-title">Por Função/Tema (${funcs.length})</h3>`;
+  funcs.forEach(([func,dados])=>{
+    const statusCor = dados.pag>0 ? '#16a34a' : dados.liq>0 ? '#d97706' : dados.emp>0 ? '#2563eb' : '#9ca3af';
+    const statusLabel = dados.pag>0 ? 'Pago' : dados.liq>0 ? 'Liquidado' : dados.emp>0 ? 'Empenhado' : 'Sem execução';
+    h+=`<div style="margin-bottom:20px">`;
+    h+=`<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">`;
+    h+=`<div style="display:flex;align-items:center;gap:8px">`;
+    h+=`<span style="font-weight:700;color:var(--text);font-size:14px">${esc(func)}</span>`;
+    h+=`<span style="padding:2px 8px;border-radius:99px;font-size:10px;font-weight:700;background:${statusCor}20;color:${statusCor}">${statusLabel}</span>`;
+    h+=`</div>`;
+    h+=`<span style="font-size:12px;color:var(--muted)">${dados.total} emenda${dados.total!==1?'s':''} · Empenhado: <strong style="color:#2563eb">${fmtBRL(dados.emp)}</strong> · Pago: <strong style="color:#16a34a">${fmtBRL(dados.pag)}</strong></span>`;
+    h+=`</div>`;
+    h+=`<div class="table-wrap"><table><thead><tr>
+      <th>Nº</th><th>Região</th><th>Ação Orçamentária</th><th>Subfunção</th><th>Localidade</th>
+      <th style="text-align:right">Empenhado</th><th style="text-align:right">Liquidado</th><th style="text-align:right">Pago</th>
+    </tr></thead><tbody>`;
+    dados.itens.forEach(e=>{
+      const sc = e.valor_pago>0?'#16a34a':e.valor_liquidado>0?'#d97706':e.valor_empenhado>0?'#2563eb':'#9ca3af';
+      h+=`<tr>
+        <td style="font-weight:600;white-space:nowrap">${esc(e.numero||'—')}</td>
+        <td style="font-size:12px;max-width:160px">${esc(e.orgao||'—')}</td>
+        <td style="font-size:12px;max-width:160px">${esc(e.acao||e.programa||'—')}</td>
+        <td style="font-size:12px">${esc(e.subfuncao||'—')}</td>
+        <td style="font-size:12px">${esc(e.localidade||'—')}</td>
+        <td style="text-align:right;color:#2563eb">${fmtBRL(e.valor_empenhado)}</td>
+        <td style="text-align:right;color:#d97706">${fmtBRL(e.valor_liquidado)}</td>
+        <td style="text-align:right;font-weight:600;color:${sc}">${fmtBRL(e.valor_pago)}</td>
+      </tr>`;
+    });
+    h+=`</tbody></table></div></div>`;
+  });
+  h+=`</div></div>`;
+  return h;
+}
+
+function switchEmendaAno(parlId, ano) {
+  _emendaYear   = parseInt(ano);
+  _emendaFuncao = '';
+  _emendaOrgao  = '';
+  _emendaLocal  = '';
+  const p = allParlamentares.find(x=>x.id===parlId)||currentProfile;
+  if(p) switchTab('emendas');
+}
+
+function filterEmendas(parlId, campo, valor) {
+  if(campo==='funcao') _emendaFuncao = valor;
+  if(campo==='orgao')  _emendaOrgao  = valor;
+  if(campo==='local')  _emendaLocal  = valor;
+  const p = allParlamentares.find(x=>x.id===parlId)||currentProfile;
+  if(p) switchTab('emendas');
+}
+
+function clearEmendaFiltros(parlId) {
+  _emendaFuncao = '';
+  _emendaOrgao  = '';
+  _emendaLocal  = '';
+  const p = allParlamentares.find(x=>x.id===parlId)||currentProfile;
+  if(p) switchTab('emendas');
 }
 
 function showNormaGrupo(tipoRaw, ano, isPrimeiro, page) {
@@ -1191,7 +1764,8 @@ async function openNorma(normaId) {
     let h='<div style="padding-top:28px;padding-bottom:60px">';
     h+='<button class="profile-back" onclick="closeNorma()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> Voltar</button>';
     h+='<div class="materia-card">';
-    h+=`<h1 class="materia-title">${esc(n.__str__||'Norma #'+n.id)}</h1>`;
+    const normaTitle=(()=>{const raw=stripAutoria(n.__str__||'');const d=raw.indexOf(' - ');return d>=0?raw.slice(d+3):raw;})();
+    h+=`<h1 class="materia-title">${esc(normaTitle||n.__str__||'Norma #'+n.id)}</h1>`;
 
     if(n.ementa){
       h+=`<div style="margin:16px 0"><div class="materia-ementa">${esc(n.ementa)}</div></div>`;
@@ -1259,26 +1833,234 @@ async function renderTabComissoes(p) {
   parts.sort((a,b)=>(b.data_designacao||"").localeCompare(a.data_designacao||""));
   if(!parts.length) return capC.comissoes ? semDados('Nenhuma participação em comissão encontrada para este parlamentar') : semModulo('Esta fonte não utiliza o módulo de Comissões');
 
-  let h=`<h3 class="section-title">Comissões (${parts.length})</h3>`;
-  const thead='<tr><th>Título da Comissão</th><th>Cargo</th><th>Titular</th><th>Início</th><th>Encerramento</th></tr>';
+  let h=`<h3 class="section-title">Participações em Comissão (${parts.length})</h3>`;
+  const thead='<tr><th>Comissão</th><th>Cargo</th><th>Período de participação</th></tr>';
   h+=paginateTable(parts,10,tablePages['pg-comissoes']||1,c=>{
     const str=c.__str__||'';
-    // Tenta separar "Comissão Nome - Cargo" ou usa o __str__ inteiro como título
-    const sepIdx=str.indexOf(' - ');
-    const comissaoNome = sepIdx>0 ? str.slice(0,sepIdx).trim() : str;
-    const cargo        = sepIdx>0 ? str.slice(sepIdx+3).trim()  : '';
+    let comissaoNome='', cargo='';
+    if(str.includes(' : ')){
+      const p=str.split(' : ');
+      cargo        = p[0].trim();
+      comissaoNome = p.slice(1).join(' : ').trim();
+    } else {
+      const sepIdx=str.lastIndexOf(' - ');
+      comissaoNome = sepIdx>0 ? str.slice(0,sepIdx).trim() : str;
+      cargo        = sepIdx>0 ? str.slice(sepIdx+3).trim() : '';
+    }
+    if(!comissaoNome) comissaoNome=str;
+    const inicio  = fmtDate(c.data_inicio_participacao||c.data_designacao||'');
+    const fim     = fmtDate(c.data_fim_participacao||c.data_desligamento||'');
+    const periodo = inicio&&fim ? `${inicio} a ${fim}` : inicio||fim||'—';
+    const cId     = c.comissao_id||'';
+    const clickAttr = cId ? `onclick="openComissao(${cId})" style="color:var(--accent);cursor:pointer;text-decoration:underline;text-underline-offset:2px"` : `style="color:var(--accent)"`;
     return `<tr>
-      <td style="font-weight:600;color:#111827">${esc(comissaoNome)}</td>
-      <td style="color:#111827">${cargo?esc(cargo):'—'}</td>
-      <td><span class="td-titular ${c.titular?'yes':'no'}">${c.titular?'Titular':'Suplente'}</span></td>
-      <td style="color:#111827">${fmtDate(c.data_designacao)}</td>
-      <td style="color:#111827">${fmtDate(c.data_desligamento)}</td>
+      <td style="font-weight:500"><span ${clickAttr} title="${esc(comissaoNome)}">${esc(comissaoNome)}</span></td>
+      <td style="color:#374151">${cargo?esc(cargo):'—'}</td>
+      <td style="color:#6b7280;white-space:nowrap">${periodo}</td>
     </tr>`;
   },thead,'pg-comissoes');
   return h;
 }
 
+function showModal(title, bodyHtml, {printable=false}={}) {
+  document.getElementById('app-modal')?.remove();
+  const el = document.createElement('div');
+  el.id = 'app-modal';
+  el.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+  const printBtn = printable
+    ? `<button id="modal-print-btn" onclick="printModal()" style="border:none;background:var(--accent);color:#fff;cursor:pointer;font-size:.8rem;font-weight:600;padding:5px 14px;border-radius:6px;margin-right:8px;display:flex;align-items:center;gap:5px"><i class="ph ph-printer"></i> Imprimir</button>`
+    : '';
+  el.innerHTML=`<div style="background:#fff;border-radius:14px;width:100%;max-width:680px;max-height:88vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,.25)">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 24px;border-bottom:1px solid #e5e7eb;position:sticky;top:0;background:#fff;z-index:1">
+      <h3 style="margin:0;font-size:1rem;font-weight:700;color:#111827">${esc(title)}</h3>
+      <div style="display:flex;align-items:center">${printBtn}<button onclick="document.getElementById('app-modal').remove()" style="border:none;background:none;cursor:pointer;font-size:1.4rem;color:#6b7280;line-height:1">×</button></div>
+    </div>
+    <div id="app-modal-body">${bodyHtml}</div>
+  </div>`;
+  el.addEventListener('click', e => { if(e.target===el) el.remove(); });
+  document.body.appendChild(el);
+}
+
+function printModal() {
+  const body = document.getElementById('app-modal-body');
+  const title = document.querySelector('#app-modal h3')?.textContent || '';
+  if (!body) return;
+  const w = window.open('', '_blank', 'width=800,height=700');
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:Arial,sans-serif;font-size:13px;color:#111;padding:24px}
+    h1{font-size:16px;font-weight:700;margin-bottom:4px}
+    .badge{display:inline-block;font-size:11px;font-weight:600;color:#2563eb;background:#dbeafe;padding:2px 10px;border-radius:20px;margin-bottom:16px}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 24px;margin-bottom:20px}
+    .field label{font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em}
+    .field p{font-size:13px;color:#111;margin-top:2px}
+    .finalidade{margin-bottom:16px;padding:12px;background:#f9fafb;border-left:3px solid #2563eb;border-radius:4px;font-size:12px;line-height:1.6;color:#374151}
+    .sec-title{font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin:16px 0 8px;border-top:1px solid #e5e7eb;padding-top:12px}
+    table{width:100%;border-collapse:collapse}
+    table th{font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;text-align:left;padding:4px 8px;border-bottom:1px solid #e5e7eb}
+    table td{font-size:12px;padding:5px 8px;border-bottom:1px solid #f3f4f6}
+    .tag-t{display:inline-block;font-size:10px;font-weight:600;background:#dcfce7;color:#166534;padding:1px 6px;border-radius:4px}
+    .tag-s{display:inline-block;font-size:10px;font-weight:600;background:#fef9c3;color:#854d0e;padding:1px 6px;border-radius:4px}
+    @media print{body{padding:12px}}
+  </style></head><body>`);
+  w.document.write(`<h1>${title}</h1>`);
+  w.document.write(body.innerHTML);
+  w.document.write('</body></html>');
+  w.document.close();
+  w.focus();
+  setTimeout(()=>{ w.print(); }, 400);
+}
+
+async function openComissao(comissaoId) {
+  showModal('Carregando…','<div style="padding:32px;text-align:center"><i class="ph ph-spinner" style="font-size:2rem;animation:spin 1s linear infinite"></i></div>');
+  try {
+    const [rC, rM] = await Promise.all([
+      fetch(proxyUrl(`/comissoes/comissao/${comissaoId}/`)),
+      fetch(proxyUrl(`/comissoes/membros/${comissaoId}/`)),
+    ]);
+    const c = await rC.json();
+    const membrosData = await rM.json();
+    if(!c||!c.nome){ showModal('Comissão','<p style="padding:24px">Detalhes não disponíveis.</p>'); return; }
+
+    const membros = membrosData?.results ?? [];
+    const ativa = c.ativo??c.ativa??c.comissao_ativa;
+    const tipoMap={1:'Comissão Permanente',2:'Comissão Parlamentar de Inquérito',3:'Comissão Temporária',4:'Comissão Mista',5:'Comissão Especial'};
+    const tipoNome=c.tipo?.nome||(typeof c.tipo==='number'||typeof c.tipo==='string'?tipoMap[+c.tipo]||'':'');
+
+    const field=(l,v)=>v!=null&&v!==''?`<div class="field"><span style="font-size:.72rem;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">${l}</span><div style="font-size:.92rem;color:#111827;margin-top:2px">${v}</div></div>`:'';
+    const secTitle=(t)=>`<div style="font-size:.72rem;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin:20px 0 10px;padding-top:16px;border-top:1px solid #f3f4f6">${t}</div>`;
+
+    let h=`<div style="padding:22px 26px">`;
+
+    // Cabeçalho
+    h+=`<div style="margin-bottom:18px">`;
+    h+=`<h2 style="font-size:1.15rem;font-weight:700;color:#111827;margin:0 0 6px">${esc(c.nome)}</h2>`;
+    if(c.sigla) h+=`<span style="font-size:.82rem;font-weight:600;color:var(--accent);background:var(--accent-light);padding:2px 12px;border-radius:20px">${esc(c.sigla)}</span>`;
+    if(tipoNome) h+=`<span style="font-size:.78rem;color:#6b7280;margin-left:8px">${esc(tipoNome)}</span>`;
+    h+=`</div>`;
+
+    // Finalidade
+    if(c.finalidade && c.finalidade.trim()) {
+      h+=`<div style="background:#f8faff;border-left:3px solid var(--accent);border-radius:4px;padding:10px 14px;margin-bottom:18px;font-size:.88rem;color:#374151;line-height:1.6">${esc(c.finalidade.trim())}</div>`;
+    }
+
+    // Campos em grid
+    h+=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px 24px">`;
+    h+=field('Status', ativa!=null?(ativa?'<span style="color:#16a34a;font-weight:600">Ativa</span>':'<span style="color:#dc2626;font-weight:600">Encerrada</span>'):'');
+    h+=field('Unidade Deliberativa', c.unidade_deliberativa!=null?(c.unidade_deliberativa?'Sim':'Não'):'');
+    h+=field('Data de Criação', fmtDate(c.data_criacao||''));
+    h+=field('Data de Extinção', fmtDate(c.data_extincao||c.data_fim_comissao||''));
+    h+=field('Secretário(a)', c.secretario||'');
+    h+=field('E-mail', c.email?`<a href="mailto:${esc(c.email)}" style="color:var(--accent)">${esc(c.email)}</a>`:'');
+    h+=field('Local de Reunião', c.local_reuniao||'');
+    h+=field('Agenda de Reunião', c.agenda_reuniao||'');
+    h+=field('Tel. Sala Reunião', c.telefone_reuniao||c.tel_reuniao||'');
+    h+=field('Endereço Secretaria', c.endereco_secretaria||'');
+    h+=field('Tel. Secretaria', c.telefone_secretaria||c.tel_secretaria||'');
+    if(c.fax_secretaria) h+=field('Fax Secretaria', c.fax_secretaria);
+    // Campos de comissão temporária
+    if(c.apelido_temp) h+=field('Apelido (temp.)', c.apelido_temp);
+    if(c.data_instalacao_temp) h+=field('Instalação (temp.)', fmtDate(c.data_instalacao_temp));
+    if(c.data_final_prevista_temp) h+=field('Prazo Previsto (temp.)', fmtDate(c.data_final_prevista_temp));
+    if(c.data_prorrogada_temp) h+=field('Prazo Prorrogado (temp.)', fmtDate(c.data_prorrogada_temp));
+    h+=`</div>`;
+
+    // Membros
+    if(membros.length) {
+      h+=secTitle(`Membros — ${membros.length} parlamentar${membros.length!==1?'es':''}`);
+      h+=`<table style="width:100%;border-collapse:collapse;font-size:.88rem">`;
+      h+=`<thead><tr>`;
+      h+=`<th style="text-align:left;padding:6px 8px;font-size:.72rem;font-weight:700;color:#6b7280;text-transform:uppercase;border-bottom:2px solid #e5e7eb">Parlamentar</th>`;
+      h+=`<th style="text-align:left;padding:6px 8px;font-size:.72rem;font-weight:700;color:#6b7280;text-transform:uppercase;border-bottom:2px solid #e5e7eb">Participação</th>`;
+      h+=`<th style="text-align:left;padding:6px 8px;font-size:.72rem;font-weight:700;color:#6b7280;text-transform:uppercase;border-bottom:2px solid #e5e7eb">Desde</th>`;
+      h+=`</tr></thead><tbody>`;
+      membros.forEach(m=>{
+        const isSup = m.cargo==='Suplente';
+        const isTit = m.cargo==='Titular';
+        const tagColor = isSup ? 'background:#fef9c3;color:#854d0e' : 'background:#dcfce7;color:#166534';
+        const tagLabel = isSup ? 'Suplente' : (isTit ? 'Titular' : m.cargo||'Titular');
+        const tag=`<span style="font-size:.7rem;font-weight:600;${tagColor};padding:1px 7px;border-radius:4px">${esc(tagLabel)}</span>`;
+        const cargoExtra = !isSup&&!isTit&&m.cargo ? '' : ''; // cargo já está na tag
+        h+=`<tr style="border-bottom:1px solid #f3f4f6">`;
+        h+=`<td style="padding:7px 8px;font-weight:500">${esc(m.nome)}</td>`;
+        h+=`<td style="padding:7px 8px">${tag}</td>`;
+        h+=`<td style="padding:7px 8px;color:#6b7280">${fmtDate(m.data_inicio||'')}</td>`;
+        h+=`</tr>`;
+      });
+      h+=`</tbody></table>`;
+    }
+
+    h+=`</div>`;
+    showModal(`${c.sigla||''} — ${c.nome}`, h, {printable:true});
+  } catch(e) {
+    showModal('Erro','<p style="padding:24px">Não foi possível carregar os detalhes.</p>');
+  }
+}
+
 // ── Tab: Relatorias ──
+let _relatoriasList = [];
+
+async function openRelatoria(idx) {
+  const r = _relatoriasList[idx];
+  if (!r) return;
+  const title = r.__str__ || ('Relatoria #' + (r.materia||''));
+  const comissaoInfo = r.comissao ? (typeof r.comissao==='object' ? (r.comissao.__str__||r.comissao.nome||'—') : String(r.comissao)) : '—';
+
+  // Separar matéria e situação do __str__ (formato: "PL nº X/ANO - Situação - Data")
+  const partes = title.split(' - ');
+  const materiaId = partes[0]?.trim() || title;
+  const situacao = partes.length > 1 ? partes.slice(1, -1).join(' - ').trim() : '';
+
+  showModal('Carregando…','<div style="padding:32px;text-align:center"><i class="ph ph-spinner" style="font-size:2rem;animation:spin 1s linear infinite"></i></div>');
+  let ementa = '', tipoStr = '', numStr = '', anoStr = '', statusTram = '';
+
+  if (r.materia) {
+    try {
+      const m = await fetchWithRetry(proxyUrl(`/materia/materialegislativa/${r.materia}/`));
+      if (m && m.id) {
+        ementa = m.ementa || '';
+        tipoStr = m.tipo?.sigla || m.tipo?.descricao || (typeof m.tipo==='string'?m.tipo:'') || '';
+        numStr = m.numero || '';
+        anoStr = m.ano ? String(m.ano) : '';
+        statusTram = m.em_tramitacao != null ? (m.em_tramitacao ? 'Em tramitação' : 'Tramitação encerrada') : '';
+      }
+    } catch(e) {}
+  }
+
+  const field=(l,v)=>v?`<div><span style="font-size:.72rem;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">${l}</span><div style="font-size:.92rem;color:#111827;margin-top:2px">${v}</div></div>`:'';
+
+  let h = `<div style="padding:22px 26px">`;
+
+  // Identificação
+  h += `<div style="margin-bottom:16px">`;
+  h += `<h2 style="font-size:1.1rem;font-weight:700;color:#111827;margin:0 0 6px">${esc(materiaId)}</h2>`;
+  if (tipoStr) h += `<span style="font-size:.8rem;font-weight:600;color:var(--accent);background:var(--accent-light);padding:2px 10px;border-radius:20px;margin-right:6px">${esc(tipoStr)}</span>`;
+  if (statusTram) {
+    const stColor = statusTram.includes('Em') ? 'color:#16a34a;background:#dcfce7' : 'color:#dc2626;background:#fee2e2';
+    h += `<span style="font-size:.78rem;font-weight:600;${stColor};padding:2px 10px;border-radius:20px">${esc(statusTram)}</span>`;
+  }
+  h += `</div>`;
+
+  if (ementa) {
+    h += `<div style="background:#f8faff;border-left:3px solid var(--accent);border-radius:4px;padding:10px 14px;margin-bottom:18px;font-size:.88rem;color:#374151;line-height:1.6">${esc(ementa)}</div>`;
+  }
+
+  h += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px 24px">`;
+  if (tipoStr) h += field('Tipo', tipoStr);
+  if (numStr)  h += field('Número', numStr);
+  if (anoStr)  h += field('Ano', anoStr);
+  h += field('Comissão', comissaoInfo);
+  h += field('Designação', fmtDate(r.data_designacao_relator||''));
+  h += field('Destituição', r.data_destituicao_relator ? fmtDate(r.data_destituicao_relator) : '<span style="color:#16a34a;font-weight:600">Em exercício</span>');
+  if (situacao) h += field('Situação da Relatoria', situacao);
+  h += `</div>`;
+
+  h += `</div>`;
+  showModal(`Relatoria — ${materiaId}`, h);
+}
+
+
 async function renderTabRelatorias(p) {
   const [rels, capR]=await Promise.all([
     getCached(p.id,'relatorias',()=>fetchAllPages(`/materia/relatoria/?parlamentar=${p.id}`)),
@@ -1286,22 +2068,26 @@ async function renderTabRelatorias(p) {
   ]);
   rels.sort((a,b)=>(b.data_designacao_relator||"").localeCompare(a.data_designacao_relator||""));
   if(!rels.length) return capR.relatorias ? semDados('Nenhuma relatoria encontrada para este parlamentar') : semModulo('Esta fonte não utiliza Relatorias');
+  _relatoriasList = rels;
 
   let h=`<h3 class="section-title">Relatorias (${rels.length})</h3>`;
-  const thead='<tr><th>Matéria / Título da Relatoria</th><th>Comissão</th><th>Designação</th><th>Destituição</th></tr>';
-  h+=paginateTable(rels,10,tablePages['pg-relatorias']||1,r=>{
-    const title=r.__str__||('Relatoria #'+r.id);
+
+  const thead='<tr><th>Matéria</th><th>Comissão</th><th>Designação</th><th>Destituição</th></tr>';
+  h+=`<div id="tab-relatorias">`;
+  h+=paginateTable(rels,10,tablePages['pg-relatorias']||1,(r,idx)=>{
+    const title=r.__str__||('Relatoria #'+r.materia);
+    // Pega só a identificação da matéria (antes do primeiro " - ")
+    const materiaLabel = title.split(' - ')[0]?.trim() || title;
     const comissaoInfo=r.comissao?(typeof r.comissao==='object'?(r.comissao.__str__||r.comissao.nome||'—'):'—'):'—';
-    return `<tr>
-      <td style="font-weight:500">${r.materia
-        ?`<a href="javascript:void(0)" onclick="openMateria(${r.materia})" style="color:var(--accent)">${esc(title)}</a>`
-        :esc(title)
-      }</td>
+    const destStr = r.data_destituicao_relator ? fmtDate(r.data_destituicao_relator) : '<span style="color:#16a34a;font-size:.8em">Em exercício</span>';
+    return `<tr style="cursor:pointer" onclick="openRelatoria(${idx})" title="Clique para ver detalhes">
+      <td style="font-weight:500;color:var(--accent)">${esc(materiaLabel)}</td>
       <td style="color:#111827">${esc(comissaoInfo)}</td>
       <td style="color:#111827">${fmtDate(r.data_designacao_relator)}</td>
-      <td style="color:#111827">${fmtDate(r.data_destituicao_relator)}</td>
+      <td>${destStr}</td>
     </tr>`;
   },thead,'pg-relatorias');
+  h+=`</div>`;
   return h;
 }
 
@@ -1343,51 +2129,201 @@ async function renderTabFrentes(p) {
 // ══════════════════════════════════════════════════════
 let agenteBusy = false;
 let agenteContext = null;
+let agenteHistory = [];
+let agenteHistoryParlId = null;
+const MAX_AGENTE_TURNS = 20;
+
+function _histUrl(parlId) {
+  return (APP_CONFIG.basePath||'')+'/api/agente-historico?contexto=parlamentar&contexto_id='+encodeURIComponent(parlId);
+}
+function agenteHistorySave() {
+  if(!agenteHistoryParlId) return;
+  fetch(_histUrl(agenteHistoryParlId), {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({historico: agenteHistory})
+  }).catch(()=>{});
+}
+async function agenteHistoryClear() {
+  agenteHistory = [];
+  if(agenteHistoryParlId) {
+    await fetch(_histUrl(agenteHistoryParlId), {method:'DELETE'}).catch(()=>{});
+  }
+  const area = document.getElementById('agenteMsgs');
+  if(area) area.innerHTML = '';
+  agenteAddMsg('ia','<p>Conversa reiniciada. Como posso ajudar?</p>');
+}
+async function agenteHistoryLoad(parlId) {
+  try {
+    const res  = await fetch(_histUrl(parlId));
+    const data = await res.json();
+    const hist = data.historico;
+    if(!Array.isArray(hist)||!hist.length) return;
+    agenteHistory = hist;
+    hist.forEach(msg => {
+      if(msg.role==='user')           agenteAddMsg('user','<p>'+esc(msg.content)+'</p>');
+      else if(msg.role==='assistant') agenteAddMsg('ia',agenteFmt(msg.content));
+    });
+  } catch(e) {}
+}
 
 async function renderTabAgente(p) {
-  // Pré-carrega dados para contexto
+  const isCamaraAg = APP_CONFIG.source==='camara_federal';
   const autorData = await getAutorData(p);
-  const [allMat, allNorm] = await Promise.all([
+
+  // Carrega todas as fontes de dados em paralelo
+  const [allMat, allNorm, comissoes, filiacoes, mandatos, frentes, emendas] = await Promise.all([
     autorData ? getCached(p.id,'all_materias',()=>fetchAllPages(`/materia/autoria/?autor=${autorData.id}&o=-id`)) : Promise.resolve([]),
     autorData ? getCached(p.id,'normas',()=>fetchAllPages(`/norma/autorianorma/?autor=${autorData.id}`)) : Promise.resolve([]),
+    getCached(p.id,'comissoes_ag',()=>fetchAllPages(`/comissoes/participacao/?parlamentar=${p.id}`)).catch(()=>[]),
+    getCached(p.id,'filiacoes_ag',()=>fetchAllPages(`/parlamentares/filiacao/?parlamentar=${p.id}`)).catch(()=>[]),
+    getCached(p.id,'mandatos_ag', ()=>fetchAllPages(`/parlamentares/mandato/?parlamentar=${p.id}`)).catch(()=>[]),
+    getCached(p.id,'frentes_ag',  ()=>fetchAllPages(`/parlamentares/frenteparlamentar/?parlamentar=${p.id}`)).catch(()=>[]),
+    isCamaraAg ? getCached(p.id,`emendas_${_emendaYear}`,()=>fetchAllPages(`/emendas/parlamentar/?parlamentar=${p.id}&ano=${_emendaYear}`)).catch(()=>[]) : Promise.resolve([]),
   ]);
 
-  // Monta contexto resumido para a IA
   const nomeParlamentar = p.nome_parlamentar||p.nome_completo||'';
+  const matLabel  = isCamaraAg ? 'proposições' : 'matérias';
+  const normLabel = isCamaraAg ? 'normas sancionadas (proposições que viraram lei)' : 'normas jurídicas';
+
   const tiposMat  = Object.entries(groupByTipo(allMat)).sort((a,b)=>b[1]-a[1]);
   const tiposNorm = Object.entries(groupByTipo(allNorm)).sort((a,b)=>b[1]-a[1]);
-  const anosMatList  = Object.entries(groupByYear(allMat)).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,10);
-  const anosNormList = Object.entries(groupByYear(allNorm)).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,10);
+  const anosMatList  = Object.entries(groupByYear(allMat)).sort((a,b)=>b[0].localeCompare(a[0]));
+  const anosNormList = Object.entries(groupByYear(allNorm)).sort((a,b)=>b[0].localeCompare(a[0]));
 
-  let ctx = `Parlamentar: ${nomeParlamentar}\n`;
-  ctx += `Total de matérias: ${allMat.length}\n`;
-  ctx += `Total de normas: ${allNorm.length}\n\n`;
-  if(tiposMat.length) ctx += `Matérias por tipo:\n${tiposMat.map(([t,n])=>`  ${t}: ${n}`).join('\n')}\n\n`;
-  if(tiposNorm.length) ctx += `Normas por tipo:\n${tiposNorm.map(([t,n])=>`  ${t}: ${n}`).join('\n')}\n\n`;
-  if(anosMatList.length) ctx += `Matérias por ano (recentes):\n${anosMatList.map(([a,n])=>`  ${a}: ${n}`).join('\n')}\n\n`;
-  if(anosNormList.length) ctx += `Normas por ano (recentes):\n${anosNormList.map(([a,n])=>`  ${a}: ${n}`).join('\n')}\n\n`;
-  // Amostra das últimas 30 matérias
-  const amostraMat = allMat.slice(0,30).map(m=>stripAutoria(m.__str__||'')).filter(Boolean);
-  if(amostraMat.length) ctx += `Exemplos de matérias:\n${amostraMat.map(m=>`  - ${m}`).join('\n')}\n\n`;
-  const amostraNorm = allNorm.slice(0,20).map(n=>stripAutoria(n.__str__||'')).filter(Boolean);
-  if(amostraNorm.length) ctx += `Exemplos de normas:\n${amostraNorm.map(n=>`  - ${n}`).join('\n')}\n`;
+  const MAT_LIMIT  = 1500;
+  const NORM_LIMIT = 500;
+  const STR_MAX    = 120;
+
+  let ctx = `# DADOS DO PARLAMENTAR\n`;
+  ctx += `Nome: ${nomeParlamentar}\n`;
+  ctx += `Partido: ${p.partido?.sigla||p.partido_sigla||'—'} | UF: ${p.uf||'—'} | Situação: ${p.ativo?'Ativo':'Inativo'}\n`;
+  if(p.profissao) ctx += `Profissão: ${p.profissao}\n`;
+  if(p.escolaridade) ctx += `Escolaridade: ${p.escolaridade}\n`;
+  ctx += '\n';
+
+  // Mandatos
+  if(mandatos.length) {
+    ctx += `## Mandatos (${mandatos.length})\n`;
+    mandatos.forEach(m=>{ctx+=`  - Legislatura ${m.legislatura||m.legislatura_id||'?'}${m.titular?' (Titular)':' (Suplente)'}\n`;});
+    ctx += '\n';
+  }
+
+  // Filiações
+  if(filiacoes.length) {
+    ctx += `## Filiações Partidárias (${filiacoes.length})\n`;
+    filiacoes.slice(0,10).forEach(f=>{
+      const sig=(f.__str__||'').replace(/^Filiação.*?:\s*/,'').trim()||f.partido?.sigla||'';
+      if(sig) ctx+=`  - ${sig}\n`;
+    });
+    ctx += '\n';
+  }
+
+  // Comissões
+  if(comissoes.length) {
+    ctx += `## Comissões (${comissoes.length})\n`;
+    comissoes.slice(0,20).forEach(c=>{
+      const s=(c.__str__||c.nome||'').trim();
+      if(s) ctx+=`  - ${s.slice(0,80)}\n`;
+    });
+    if(comissoes.length>20) ctx+=`  ... e mais ${comissoes.length-20}\n`;
+    ctx += '\n';
+  }
+
+  // Frentes
+  if(frentes.length) {
+    ctx += `## Frentes Parlamentares (${frentes.length})\n`;
+    frentes.slice(0,15).forEach(f=>{const t=(f.titulo||f.__str__||'').trim();if(t) ctx+=`  - ${t.slice(0,80)}\n`;});
+    if(frentes.length>15) ctx+=`  ... e mais ${frentes.length-15}\n`;
+    ctx += '\n';
+  }
+
+  // Emendas (só Câmara Federal)
+  if(isCamaraAg && emendas.length) {
+    const fmtM = v=>v>0?'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2}):'—';
+    const totDot = emendas.reduce((s,e)=>s+(e.valor_dotacao||0),0);
+    const totPag = emendas.reduce((s,e)=>s+(e.valor_pago||0),0);
+    ctx += `## Emendas Parlamentares ${_emendaYear} (${emendas.length})\n`;
+    ctx += `Dotação total: ${fmtM(totDot)} | Valor pago: ${fmtM(totPag)}\n`;
+    const porFunc={};
+    emendas.forEach(e=>{const f=e.funcao||'Outros';porFunc[f]=(porFunc[f]||0)+(e.valor_dotacao||0);});
+    const funcs=Object.entries(porFunc).sort((a,b)=>b[1]-a[1]);
+    ctx += `Distribuição por função:\n`;
+    funcs.forEach(([f,v])=>{ctx+=`  - ${f}: ${fmtM(v)}\n`;});
+    ctx += '\n';
+    ctx += `Emendas (destino, função, valor dotado):\n`;
+    emendas.slice(0,50).forEach(e=>{
+      ctx+=`  - Nº ${e.numero||'?'} | ${e.funcao||'—'} / ${e.subfuncao||'—'} | Destino: ${e.localidade||'—'} | Dotação: ${fmtM(e.valor_dotacao)} | Pago: ${fmtM(e.valor_pago)}\n`;
+    });
+    if(emendas.length>50) ctx+=`  ... e mais ${emendas.length-50} emendas\n`;
+    ctx += '\n';
+  }
+
+  // Proposições / Matérias
+  ctx += `## ${isCamaraAg?'Proposições Legislativas':'Matérias Legislativas'} (${allMat.length} total)\n`;
+  if(tiposMat.length) {
+    ctx += `Por tipo:\n${tiposMat.map(([t,n])=>`  ${t}: ${n}`).join('\n')}\n`;
+  }
+  if(anosMatList.length) {
+    ctx += `Por ano:\n${anosMatList.map(([a,n])=>`  ${a}: ${n}`).join('\n')}\n`;
+  }
+  ctx += '\n';
+  const listMat = allMat.slice(0,MAT_LIMIT).map(m=>{const s=stripAutoria(m.__str__||'');return s.length>STR_MAX?s.slice(0,STR_MAX)+'…':s;}).filter(Boolean);
+  if(listMat.length) {
+    ctx += `Lista ${isCamaraAg?'de proposições':'de matérias'} (${listMat.length}${allMat.length>MAT_LIMIT?' de '+allMat.length:''}, mais recentes primeiro):\n`;
+    ctx += listMat.map(m=>`  - ${m}`).join('\n') + '\n\n';
+  }
+
+  // Normas / Sancionadas
+  if(allNorm.length) {
+    ctx += `## ${isCamaraAg?'Normas Sancionadas':'Normas Jurídicas'} (${allNorm.length} total)\n`;
+    if(tiposNorm.length) ctx += `Por tipo:\n${tiposNorm.map(([t,n])=>`  ${t}: ${n}`).join('\n')}\n`;
+    if(anosNormList.length) ctx += `Por ano:\n${anosNormList.map(([a,n])=>`  ${a}: ${n}`).join('\n')}\n`;
+    ctx += '\n';
+    const listNorm = allNorm.slice(0,NORM_LIMIT).map(n=>{const s=stripAutoria(n.__str__||'');return s.length>STR_MAX?s.slice(0,STR_MAX)+'…':s;}).filter(Boolean);
+    if(listNorm.length) {
+      ctx += `Lista de ${normLabel} (${listNorm.length}${allNorm.length>NORM_LIMIT?' de '+allNorm.length:''}):\n`;
+      ctx += listNorm.map(n=>`  - ${n}`).join('\n') + '\n';
+    }
+  }
 
   agenteContext = ctx;
+  agenteHistory = [];
+  agenteHistoryParlId = p.id;
   agenteBusy = false;
 
+  const ctxSummary = [
+    allMat.length ? `<strong>${allMat.length}</strong> ${matLabel}` : '',
+    allNorm.length ? `<strong>${allNorm.length}</strong> ${isCamaraAg?'sancionadas':'normas'}` : '',
+    isCamaraAg&&emendas.length ? `<strong>${emendas.length}</strong> emendas ${_emendaYear}` : '',
+    comissoes.length ? `<strong>${comissoes.length}</strong> comissões` : '',
+    frentes.length  ? `<strong>${frentes.length}</strong> frentes` : '',
+  ].filter(Boolean).join(' · ');
+
   let h='<div class="agente-wrap">';
-  h+=`<div style="font-size:13px;color:var(--muted);padding:12px 16px;background:var(--accent-light);border-radius:10px;border:1px solid #bbf7d0;line-height:1.6">
-    <strong style="color:var(--accent-dark)">Agente IA</strong> — Faça perguntas sobre as matérias e normas de <strong>${esc(nomeParlamentar)}</strong>.
-    Contexto carregado: <strong style="color:#111827">${allMat.length}</strong> matérias e <strong style="color:#111827">${allNorm.length}</strong> normas.
+  h+=`<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px;background:var(--accent-light);border-radius:10px;border:1px solid #bbf7d0">
+    <div style="font-size:13px;color:var(--muted);line-height:1.6">
+      <strong style="color:var(--accent-dark)">Agente IA</strong> — Análise completa de <strong>${esc(nomeParlamentar)}</strong>.<br>
+      Contexto carregado: ${ctxSummary||'dados básicos'}.
+    </div>
+    <button onclick="agenteHistoryClear()" style="flex-shrink:0;display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:7px;border:1.5px solid #fca5a5;background:#fff7f7;color:#dc2626;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap;transition:background .15s" onmouseover="this.style.background='#fee2e2'" onmouseout="this.style.background='#fff7f7'"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg> Limpar conversa</button>
   </div>`;
   h+='<div class="agente-chat">';
   h+='<div class="agente-msgs" id="agenteMsgs">';
-  h+=`<div class="agente-msg"><div class="agente-av ia">IA</div><div class="agente-bubble ia"><p>Olá! Sou o Agente IA de análise legislativa. Posso responder perguntas sobre as matérias e normas de <strong>${esc(nomeParlamentar)}</strong>, como quantidades por tipo, anos mais produtivos, ranking de temas e muito mais.</p></div></div>`;
+  const welcomeExtras = [
+    allMat.length ? `${isCamaraAg?'proposições':'matérias'} (quantidade, tipos, anos, temas)` : '',
+    allNorm.length ? (isCamaraAg?'proposições sancionadas (leis aprovadas)':'normas jurídicas') : '',
+    isCamaraAg&&emendas.length ? `emendas orçamentárias ${_emendaYear} (valores, destinos, funções)` : '',
+    comissoes.length ? 'comissões e participação' : '',
+    frentes.length  ? 'frentes parlamentares' : '',
+  ].filter(Boolean);
+  h+=`<div class="agente-msg"><div class="agente-av ia">IA</div><div class="agente-bubble ia"><p>Olá! Sou o Agente IA de análise legislativa. Tenho dados completos de <strong>${esc(nomeParlamentar)}</strong> sobre: ${welcomeExtras.join(', ')||'produção legislativa'}.</p><p>Posso analisar ranking por tema, produtividade por ano, buscar proposições específicas, comparar períodos e muito mais.</p></div></div>`;
   h+='</div>';
   h+='<div class="agente-input-bar">';
-  h+='<textarea id="agenteInput" class="agente-textarea" placeholder="Pergunte sobre matérias, normas, tipos, anos..." onkeydown="agenteKeydown(event)" oninput="this.style.height=\'40px\';this.style.height=Math.min(this.scrollHeight,120)+\'px\'"></textarea>';
+  h+=`<textarea id="agenteInput" class="agente-textarea" placeholder="Pergunte sobre ${isCamaraAg?'proposições, normas sancionadas, emendas':'matérias, normas'}, comissões, frentes..." onkeydown="agenteKeydown(event)" oninput="this.style.height='40px';this.style.height=Math.min(this.scrollHeight,120)+'px'"></textarea>`;
   h+='<button id="agenteSend" class="agente-send" onclick="agenteSend()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>';
   h+='</div></div></div>';
+
   return h;
 }
 
@@ -1402,7 +2338,8 @@ function groupByYear(items) {
   return g;
 }
 
-function initAgenteEvents() {
+async function initAgenteEvents() {
+  await agenteHistoryLoad(agenteHistoryParlId);
   const inp=document.getElementById('agenteInput');
   if(inp) inp.focus();
 }
@@ -1426,7 +2363,7 @@ function agenteAddTyping() {
   if(!area) return;
   const row=document.createElement('div');
   row.className='agente-msg'; row.id='agenteTyping';
-  row.innerHTML='<div class="agente-av ia">IA</div><div class="agente-bubble ia" style="padding:10px 14px"><div style="display:flex;gap:4px"><div class="agente-dot"></div><div class="agente-dot"></div><div class="agente-dot"></div></div></div>';
+  row.innerHTML='<div class="agente-av ia">IA</div><div class="agente-bubble ia" style="padding:10px 14px;display:inline-flex;min-width:0"><div class="agente-typing-dots"><div class="agente-dot"></div><div class="agente-dot"></div><div class="agente-dot"></div></div></div>';
   area.appendChild(row);
   area.scrollTop=area.scrollHeight;
 }
@@ -1453,18 +2390,22 @@ async function agenteSend() {
   inp.value=''; inp.style.height='';
   agenteAddTyping();
 
-  const sysContent=`Você é um assistente especializado em análise da produção legislativa de parlamentares brasileiros.
-Responda APENAS sobre as matérias e normas do parlamentar descrito abaixo.
-Seja objetivo, claro e use linguagem simples. Responda em português brasileiro.
-Pode analisar: quantidade por tipo, quantidade por ano, ranking de temas, importância das matérias, padrões na produção legislativa, comparações.
+  const sysContent=`Você é um assistente especializado em análise do perfil parlamentar de legisladores brasileiros.
+Responda APENAS com base nos dados fornecidos abaixo. Seja objetivo, claro e use linguagem simples. Responda em português brasileiro.
+Você TEM MEMÓRIA desta conversa — lembre-se de tudo que foi dito anteriormente.
+Você tem acesso a dados completos do parlamentar: proposições/matérias legislativas, normas sancionadas (leis aprovadas), emendas orçamentárias (valores, destinos, funções), comissões, filiações, frentes parlamentares e mandatos.
+Use esses dados para: buscar itens por tema/palavra-chave, filtrar por tipo/ano, calcular totais e rankings, identificar padrões, comparar períodos, listar emendas por localidade ou função.
+NÃO invente matérias, normas ou emendas que não constem nos dados fornecidos.
+IMPORTANTE: Se solicitado a listar muitos itens (mais de 50), SEMPRE entregue a lista completa em uma única resposta, sem cortar ou pedir confirmação para continuar.
 
-DADOS DO PARLAMENTAR:
 ${agenteContext||'Dados não disponíveis.'}`;
 
-  const messages=[
-    {role:'system',content:sysContent},
-    {role:'user',content:q},
-  ];
+  agenteHistory.push({role:'user',content:q});
+
+  // Limita histórico para não estourar contexto da API
+  while(agenteHistory.length > MAX_AGENTE_TURNS * 2) agenteHistory.splice(0,2);
+
+  const messages=[{role:'system',content:sysContent},...agenteHistory];
 
   try{
     const fd=new FormData();
@@ -1475,12 +2416,25 @@ ${agenteContext||'Dados não disponíveis.'}`;
     const data=await res.json();
     document.getElementById('agenteTyping')?.remove();
     if(data.error){
-      agenteAddMsg('ia','<p style="color:var(--red)">'+esc(data.error)+'</p>');
+      agenteHistory.pop();
+      agenteHistorySave();
+      const errMsg = typeof data.error==='string' ? data.error : (data.error?.message||JSON.stringify(data.error));
+      agenteAddMsg('ia','<p style="color:var(--red)">'+esc(errMsg)+'</p>');
     }else{
       const text=data.choices?.[0]?.message?.content||'';
-      agenteAddMsg('ia',text?agenteFmt(text):'<p>Sem resposta.</p>');
+      if(!text){
+        agenteHistory.pop();
+        agenteHistorySave();
+        agenteAddMsg('ia','<p>Sem resposta.</p>');
+      }else{
+        agenteHistory.push({role:'assistant',content:text});
+        agenteHistorySave();
+        agenteAddMsg('ia',agenteFmt(text));
+      }
     }
   }catch(e){
+    agenteHistory.pop();
+    agenteHistorySave();
     document.getElementById('agenteTyping')?.remove();
     agenteAddMsg('ia','<p style="color:var(--red)">Falha na comunicação com o servidor.</p>');
   }
@@ -1495,15 +2449,15 @@ ${agenteContext||'Dados não disponíveis.'}`;
 function onChangeLeg(v){selectedLeg=v;loadMandatos().then(()=>renderList())}
 let st;
 function onSearch(v){search=v;clearTimeout(st);st=setTimeout(()=>renderGrid(),150)}
-function toggleActive(){onlyActive=!onlyActive;renderGrid();document.querySelectorAll('.toggle-btn')[0].classList.toggle('active',onlyActive)}
-function toggleTitular(){onlyTitular=!onlyTitular;renderGrid();document.querySelectorAll('.toggle-btn')[1].classList.toggle('active',onlyTitular)}
+function toggleActive(){onlyActive=!onlyActive;renderGrid();document.querySelector('[onclick="toggleActive()"]')?.classList.toggle('active',onlyActive)}
+function toggleTitular(){onlyTitular=!onlyTitular;renderGrid();document.querySelector('[onclick="toggleTitular()"]')?.classList.toggle('active',onlyTitular)}
 
 async function openProfile(id) {
   const p=allParlamentares.find(x=>x.id===id);if(!p)return;
   history.replaceState(null,'','#perfil-'+id);
   currentProfile=p;activeTab='inicio';tablePages={};
   dashboardAllMaterias=null;dashboardAllNormas=null;dashboardChartInstances={};
-  agenteContext=null;agenteBusy=false;
+  agenteContext=null;agenteBusy=false;agenteHistory=[];agenteHistoryParlId=null;
   const main=document.getElementById("mainContent");
   main.innerHTML=await renderProfileShell(p);
   switchTab('inicio');
@@ -1636,7 +2590,7 @@ async function init(){
       allLegislaturas = cached.legislaturas;
       allParlamentares = cached.parlamentares;
       cached.partidos.forEach(p=>{allPartidos[p.id]=p.nome;allPartidosSigla[p.id]=p.sigla});
-      selectedLeg = cached.selectedLeg || (allLegislaturas[0] ? String(allLegislaturas[0].id) : "");
+      selectedLeg = allLegislaturas[0] ? String(allLegislaturas[0].id) : "";
       mandatosByLeg = cached.mandatos || [];
       if(!restoreHashProfile()) renderList();
       return;
@@ -1715,4 +2669,440 @@ async function init(){
     </div>`;
   }
 }
+
+// ── Extras (parl_extras) — leitura integrada nas abas ────────────────────────
+
+// _ABAS_CAMPOS não é mais necessário no front (gerenciamento via /admin/extras)
+
+const _ABAS_CAMPOS = {
+  inicio:     [{key:'biografia',label:'Biografia',type:'textarea'}],
+  materias:   [{key:'tipo',label:'Tipo (sigla)',type:'text'},{key:'numero',label:'Número',type:'text'},{key:'ano',label:'Ano',type:'number'},{key:'ementa',label:'Ementa',type:'textarea'},{key:'situacao',label:'Situação',type:'text'}],
+  normas:     [{key:'tipo',label:'Tipo (sigla)',type:'text'},{key:'numero',label:'Número',type:'text'},{key:'ano',label:'Ano',type:'number'},{key:'ementa',label:'Ementa',type:'textarea'},{key:'data_norma',label:'Data',type:'date'}],
+  emendas:    [{key:'numero',label:'Número',type:'text'},{key:'ano',label:'Ano',type:'number'},{key:'tipo',label:'Tipo',type:'text'},{key:'funcao',label:'Função',type:'text'},{key:'subfuncao',label:'Subfunção',type:'text'},{key:'orgao',label:'Órgão/Ministério',type:'text'},{key:'acao',label:'Ação Orçamentária',type:'text'},{key:'programa',label:'Programa',type:'text'},{key:'localidade',label:'Localidade/Destino',type:'text'},{key:'valor_dotacao',label:'Valor Dotação (R$)',type:'number'},{key:'valor_empenhado',label:'Valor Empenhado (R$)',type:'number'},{key:'valor_liquidado',label:'Valor Liquidado (R$)',type:'number'},{key:'valor_pago',label:'Valor Pago (R$)',type:'number'}],
+  comissoes:  [{key:'comissao',label:'Comissão',type:'text'},{key:'data_inicio',label:'Data Início',type:'date'},{key:'data_fim',label:'Data Fim',type:'date'},{key:'cargo',label:'Cargo',type:'text'}],
+  frentes:    [{key:'frente_nome',label:'Nome da Frente',type:'text'},{key:'cargo',label:'Cargo',type:'text'}],
+  filiacoes:  [{key:'partido',label:'Partido (sigla)',type:'text'},{key:'data_filiacao',label:'Data Filiação',type:'date'},{key:'data_desfiliacao',label:'Data Desfiliação',type:'date'}],
+  relatorias: [{key:'materia',label:'Matéria',type:'text'},{key:'comissao',label:'Comissão',type:'text'},{key:'data_designacao',label:'Data Designação',type:'date'}],
+};
+
+async function fetchExtras(parlId, aba) {
+  try {
+    const url = APP_CONFIG.basePath + '/api/extras?source=' + encodeURIComponent(APP_CONFIG.source) + '&sapl_id=' + parlId + '&aba=' + encodeURIComponent(aba);
+    const resp = await fetch(url);
+    if (!resp.ok) return [];
+    return await resp.json();
+  } catch(e) { return []; }
+}
+
+// ── Extras: store de dados para modal ao clicar ──────────────────────────────
+const _extraDataMap = {};
+let _extraDataIdx = 0;
+function _storeExtra(dados, aba) { const k = ++_extraDataIdx; _extraDataMap[k] = {dados, aba}; return k; }
+
+function openExtraDetail(k) {
+  const entry = _extraDataMap[k]; if (!entry) return;
+  const {dados: d, aba} = entry;
+  if (aba === 'materias' || aba === 'normas') { _openExtraMateria(d, aba); return; }
+  if (aba === 'relatorias')                   { _openExtraRelatoria(d);    return; }
+  // Fallback genérico (outros tipos raramente precisam de modal próprio)
+  const title = d.tipo ? [d.tipo, d.numero?'nº '+d.numero:'', d.ano?'/'+d.ano:''].filter(Boolean).join(' ').replace(' /','/'): (d.frente_nome||d.comissao||d.partido||'Detalhes');
+  let body = '<div style="padding:20px 24px">';
+  if (d.ementa) body += `<div style="border-left:3px solid var(--accent);padding:10px 14px;background:var(--accent-light);border-radius:4px;font-size:13px;line-height:1.6;color:#374151;margin-bottom:12px">${esc(d.ementa)}</div>`;
+  Object.entries(d).forEach(([key, val]) => {
+    if (!val || key === 'ementa' || key === 'biografia') return;
+    body += `<div style="margin-bottom:8px"><span style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">${esc(key.replace(/_/g,' '))}</span><div style="font-size:13px;color:#111827;margin-top:2px">${esc(String(val))}</div></div>`;
+  });
+  body += '</div>';
+  showModal(title, body);
+}
+
+// Abre matéria/norma como página completa (igual ao openMateria), substituindo mainContent
+function _openExtraMateria(d, aba) {
+  const main = document.getElementById('mainContent');
+  if (!main) return;
+
+  const emTram = d.em_tramitacao !== undefined && d.em_tramitacao !== ''
+    ? (String(d.em_tramitacao) === '1' || d.em_tramitacao === true)
+    : null;
+  const materiaTitle = [d.tipo, d.numero ? 'nº ' + d.numero : '', d.ano ? '/' + d.ano : ''].filter(Boolean).join(' ').replace(' /', '/');
+
+  let h = `<div style="padding-top:28px;padding-bottom:60px">`;
+
+  // ── Voltar (igual ao closeMateria) ──
+  h += `<button class="profile-back" onclick="closeExtraMateria('${aba}')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> Voltar</button>`;
+
+  // ── Header: título + badge ──
+  h += `<div class="materia-header">`;
+  h += `<h1 class="materia-title">${esc(materiaTitle || (aba === 'normas' ? 'Norma' : 'Matéria'))}</h1>`;
+  h += `<div style="display:flex;align-items:center;gap:8px;flex-shrink:0">`;
+  if (emTram !== null) {
+    h += `<span class="tag" style="background:${emTram?'var(--accent-light)':'var(--red-light)'};color:${emTram?'var(--accent)':'var(--red)'}">` + (emTram ? 'Em Tramitação' : 'Encerrada') + `</span>`;
+  }
+  h += `</div></div>`;
+
+  // ── Card principal ──
+  h += `<div class="materia-card">`;
+
+  // Tipo em destaque
+  if (d.tipo) {
+    h += `<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)">`;
+    h += `<span style="font-size:28px;font-weight:800;color:var(--accent);font-family:'Playfair Display',serif;line-height:1">${esc(d.tipo)}</span>`;
+    h += `</div>`;
+  }
+
+  // Números, ano, data
+  h += `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:16px;margin-bottom:20px">`;
+  if (d.numero)            h += `<div><span class="materia-label">Número</span><div style="font-size:20px;font-weight:700;color:var(--text);margin-top:4px">${esc(d.numero)}</div></div>`;
+  if (d.ano)               h += `<div><span class="materia-label">Ano</span><div style="font-size:20px;font-weight:700;color:var(--text);margin-top:4px">${esc(String(d.ano))}</div></div>`;
+  if (d.data_apresentacao) h += `<div><span class="materia-label">Apresentação</span><div style="font-size:14px;color:var(--text);margin-top:4px;font-weight:500">${fmtDate(d.data_apresentacao)}</div></div>`;
+  if (d.data_norma)        h += `<div><span class="materia-label">Publicação</span><div style="font-size:14px;color:var(--text);margin-top:4px;font-weight:500">${fmtDate(d.data_norma)}</div></div>`;
+  if (d.numero_protocolo)  h += `<div><span class="materia-label">Protocolo</span><div style="font-size:14px;color:var(--text);margin-top:4px">${esc(d.numero_protocolo)}</div></div>`;
+  h += `</div>`;
+
+  // Status: situação + órgão + regime
+  if (d.situacao || d.orgao_atual || d.regime) {
+    h += `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:16px;padding:16px;background:var(--bg);border-radius:10px;margin-bottom:20px">`;
+    if (d.situacao)    h += `<div><span class="materia-label">Situação</span><div style="margin-top:6px"><span class="tag" style="background:${emTram?'var(--accent-light)':'#f3f4f6'};color:${emTram?'var(--accent)':'var(--muted)'};font-size:12px">${esc(d.situacao)}</span></div></div>`;
+    if (d.orgao_atual) h += `<div><span class="materia-label">Órgão Atual</span><div style="margin-top:4px;font-size:14px;font-weight:600;color:var(--text)">${esc(d.orgao_atual)}</div></div>`;
+    if (d.regime)      h += `<div><span class="materia-label">Regime</span><div style="margin-top:4px;font-size:13px;color:var(--text)">${esc(d.regime)}</div></div>`;
+    h += `</div>`;
+  }
+
+  // Último despacho
+  if (d.despacho_atual) {
+    h += `<div style="padding:12px 16px;border-left:3px solid var(--accent);background:var(--accent-light);border-radius:0 8px 8px 0;margin-bottom:20px">`;
+    h += `<span class="materia-label">Último Despacho</span>`;
+    h += `<div style="margin-top:4px;font-size:13px;line-height:1.6;color:var(--text)">${esc(d.despacho_atual)}</div>`;
+    h += `</div>`;
+  }
+
+  // Ementa
+  h += `<div><span class="materia-label">Ementa</span>`;
+  if (d.ementa) {
+    h += `<div class="materia-ementa">${esc(d.ementa)}</div>`;
+  } else {
+    h += `<div style="margin-top:4px;color:var(--muted);font-size:13px;font-style:italic">Não disponível para esta entrada.</div>`;
+  }
+  h += `</div>`;
+
+  h += `</div></div>`;
+
+  main.innerHTML = h;
+  window.scrollTo({top: 0, behavior: 'smooth'});
+}
+
+// Volta para a aba correta após abrir uma extra de matéria/norma
+function closeExtraMateria(aba) {
+  if (currentProfile) {
+    const main = document.getElementById('mainContent');
+    renderProfileShell(currentProfile).then(html => {
+      main.innerHTML = html;
+      switchTab(aba || 'materias');
+    });
+  } else { backToList(); }
+}
+
+// Modal de relatoria — idêntico ao openRelatoria mas dos dados armazenados (sem fetch)
+function _openExtraRelatoria(d) {
+  const materiaId = d.materia || [d.tipo, d.numero?'nº '+d.numero:'', d.ano?'/'+d.ano:''].filter(Boolean).join(' ').replace(' /','/')  || 'Relatoria';
+  const emTram = d.em_tramitacao !== undefined && d.em_tramitacao !== ''
+    ? (String(d.em_tramitacao) === '1' || d.em_tramitacao === true)
+    : null;
+  const statusTram = emTram !== null ? (emTram ? 'Em tramitação' : 'Tramitação encerrada') : '';
+  const field = (l, v) => v ? `<div><span style="font-size:.72rem;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">${l}</span><div style="font-size:.92rem;color:#111827;margin-top:2px">${v}</div></div>` : '';
+
+  let h = `<div style="padding:22px 26px">`;
+
+  h += `<div style="margin-bottom:16px">`;
+  h += `<h2 style="font-size:1.1rem;font-weight:700;color:#111827;margin:0 0 6px">${esc(materiaId)}</h2>`;
+  if (d.tipo) h += `<span style="font-size:.8rem;font-weight:600;color:var(--accent);background:var(--accent-light);padding:2px 10px;border-radius:20px;margin-right:6px">${esc(d.tipo)}</span>`;
+  if (statusTram) {
+    const sc = emTram ? 'color:#16a34a;background:#dcfce7' : 'color:#dc2626;background:#fee2e2';
+    h += `<span style="font-size:.78rem;font-weight:600;${sc};padding:2px 10px;border-radius:20px">${esc(statusTram)}</span>`;
+  }
+  h += `</div>`;
+
+  if (d.ementa) {
+    h += `<div style="background:#f8faff;border-left:3px solid var(--accent);border-radius:4px;padding:10px 14px;margin-bottom:18px;font-size:.88rem;color:#374151;line-height:1.6">${esc(d.ementa)}</div>`;
+  }
+
+  h += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px 24px">`;
+  if (d.tipo)   h += field('Tipo',   esc(d.tipo));
+  if (d.numero) h += field('Número', esc(d.numero));
+  if (d.ano)    h += field('Ano',    esc(String(d.ano)));
+  h += field('Comissão',   esc(d.comissao || '—'));
+  h += field('Designação', fmtDate(d.data_designacao || ''));
+  h += field('Destituição', d.data_destituicao
+    ? fmtDate(d.data_destituicao)
+    : '<span style="color:#16a34a;font-weight:600">Em exercício</span>');
+  if (d.situacao) h += field('Situação da Relatoria', esc(d.situacao));
+  h += `</div></div>`;
+
+  showModal(`Relatoria — ${materiaId}`, h);
+}
+
+// Insere rowHtml dentro do tbody agrupado por ano (mesmo padrão de buildAutoriaGroup)
+function _insertInYearGroup(tbody, colSpan, anoStr, rowHtml) {
+  const rows = Array.from(tbody.rows);
+  let foundYear = false, insertBeforeRow = null;
+  for (const r of rows) {
+    const isYearHeader = r.cells.length === 1 && r.cells[0].colSpan > 1;
+    if (isYearHeader) {
+      if (foundYear) { insertBeforeRow = r; break; }
+      if (r.cells[0].textContent.includes('Ano: ' + anoStr)) foundYear = true;
+    }
+  }
+  if (foundYear) {
+    if (insertBeforeRow) {
+      insertBeforeRow.insertAdjacentHTML('beforebegin', rowHtml);
+    } else {
+      tbody.insertAdjacentHTML('beforeend', rowHtml);
+    }
+  } else {
+    tbody.insertAdjacentHTML('beforeend',
+      `<tr><td colspan="${colSpan}" style="background:var(--bg);padding:7px 12px;font-weight:700;font-size:13px">Ano: ${esc(anoStr)}</td></tr>${rowHtml}`
+    );
+  }
+}
+
+// Injeta extras diretamente na estrutura de cada aba, sem wrapper/badge/botões.
+// Os dados aparecem como se fossem do fluxo normal.
+function injectExtras(el, aba, extras) {
+  if (!extras.length) return;
+  const fmtBRL = v => v > 0 ? 'R$ ' + Number(v).toLocaleString('pt-BR', {minimumFractionDigits:2}) : '—';
+
+  // Helper: encontra tbody existente ou retorna null
+  const findTbody = () => {
+    const all = el.querySelectorAll('table tbody');
+    return all.length ? all[all.length - 1] : null;
+  };
+
+  switch (aba) {
+
+    // ── Início ──────────────────────────────────────────────────────────────
+    // Normal: <h3 class="section-title">Biografia</h3><div class="bio-text">…</div>
+    case 'inicio': {
+      const bio = extras.map(ex => ex.dados?.biografia).filter(Boolean)[0];
+      if (!bio) break;
+      const html = `<h3 class="section-title">Biografia</h3><div class="bio-text">${renderBioHtml(formatBio(bio))}</div>`;
+      const semEl = el.querySelector('.empty-tab');
+      if (semEl) { el.innerHTML = html; }
+      else { el.insertAdjacentHTML('beforeend', html); }
+      break;
+    }
+
+    // ── Matérias ─────────────────────────────────────────────────────────────
+    // Normal: buildAutoriaGroup → table-wrap / 3 cols (sigla | nome/desc | count)
+    // Agrupa por ano e abre modal com ementa ao clicar.
+    case 'materias': {
+      const makeMatRow = d => {
+        const k = _storeExtra(d, 'materias');
+        const sigla = d.tipo || '—';
+        const numPart = d.numero ? `nº ${esc(d.numero)}${d.ano ? '/' + d.ano : ''}` : (d.ano || '');
+        const desc = [numPart, d.situacao ? esc(d.situacao) : ''].filter(Boolean).join(' · ');
+        return `<tr class="tipo-row" onclick="openExtraDetail(${k})" style="cursor:pointer">
+          <td><strong>${esc(sigla)}</strong></td>
+          <td>${desc || esc(d.ementa || '—')}</td>
+          <td style="text-align:right;font-weight:700;white-space:nowrap">1</td>
+        </tr>`;
+      };
+      const tbody = findTbody();
+      if (tbody) {
+        extras.forEach(ex => {
+          const d = ex.dados || {}; if (!d.tipo && !d.ementa) return;
+          _insertInYearGroup(tbody, 3, String(d.ano || '—'), makeMatRow(d));
+        });
+      } else {
+        const byYear = {};
+        extras.forEach(ex => {
+          const d = ex.dados || {}; if (!d.tipo && !d.ementa) return;
+          const y = String(d.ano || '—');
+          (byYear[y] = byYear[y] || []).push(d);
+        });
+        if (!Object.keys(byYear).length) break;
+        let inner = '';
+        Object.keys(byYear).sort((a, b) => b - a).forEach(ano => {
+          inner += `<tr><td colspan="3" style="background:var(--bg);padding:7px 12px;font-weight:700;font-size:13px">Ano: ${esc(ano)}</td></tr>`;
+          byYear[ano].forEach(d => { inner += makeMatRow(d); });
+        });
+        const html = `<div style="margin-bottom:28px"><div class="table-wrap"><table><tbody>${inner}</tbody></table></div></div>`;
+        const semEl = el.querySelector('.empty-tab');
+        if (semEl) { el.innerHTML = html; } else { el.insertAdjacentHTML('beforeend', html); }
+      }
+      break;
+    }
+
+    // ── Normas ───────────────────────────────────────────────────────────────
+    // Normal: buildNormaGroup → table-wrap / 3 cols (sigla | nome/desc | count)
+    // Agrupa por ano e abre modal com ementa ao clicar.
+    case 'normas': {
+      const makeNorRow = d => {
+        const k = _storeExtra(d, 'normas');
+        const sigla = d.tipo || '—';
+        const numPart = d.numero ? `nº ${esc(d.numero)}${d.ano ? '/' + d.ano : ''}` : (d.ano || '');
+        const desc = [numPart, d.data_norma ? fmtDate(d.data_norma) : ''].filter(Boolean).join(' · ');
+        return `<tr class="tipo-row" onclick="openExtraDetail(${k})" style="cursor:pointer">
+          <td><strong>${esc(sigla)}</strong></td>
+          <td>${desc || esc(d.ementa || '—')}</td>
+          <td style="text-align:right;font-weight:700;white-space:nowrap">1</td>
+        </tr>`;
+      };
+      const tbody = findTbody();
+      if (tbody) {
+        extras.forEach(ex => {
+          const d = ex.dados || {}; if (!d.tipo && !d.ementa) return;
+          _insertInYearGroup(tbody, 3, String(d.ano || '—'), makeNorRow(d));
+        });
+      } else {
+        const byYear = {};
+        extras.forEach(ex => {
+          const d = ex.dados || {}; if (!d.tipo && !d.ementa) return;
+          const y = String(d.ano || '—');
+          (byYear[y] = byYear[y] || []).push(d);
+        });
+        if (!Object.keys(byYear).length) break;
+        let inner = '';
+        Object.keys(byYear).sort((a, b) => b - a).forEach(ano => {
+          inner += `<tr><td colspan="3" style="background:var(--bg);padding:7px 12px;font-weight:700;font-size:13px">Ano: ${esc(ano)}</td></tr>`;
+          byYear[ano].forEach(d => { inner += makeNorRow(d); });
+        });
+        const html = `<div style="margin-bottom:28px"><div class="table-wrap"><table><tbody>${inner}</tbody></table></div></div>`;
+        const semEl = el.querySelector('.empty-tab');
+        if (semEl) { el.innerHTML = html; } else { el.insertAdjacentHTML('beforeend', html); }
+      }
+      break;
+    }
+
+    // ── Emendas ──────────────────────────────────────────────────────────────
+    case 'emendas': {
+      const fmtE = v => (v&&v>0) ? 'R$ '+Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2}) : '—';
+      const makeRow = d => {
+        const sc = (d.valor_pago>0)?'#16a34a':(d.valor_liquidado>0)?'#d97706':(d.valor_empenhado>0)?'#2563eb':'#9ca3af';
+        return `<tr>
+          <td style="font-weight:600;white-space:nowrap">${esc(d.numero||'—')}</td>
+          <td style="font-size:12px">${esc(d.orgao||'—')}</td>
+          <td style="font-size:12px">${esc(d.subfuncao||d.funcao||'—')}</td>
+          <td style="font-size:12px">${esc(d.localidade||'—')}</td>
+          <td style="text-align:right;font-weight:500">${fmtE(d.valor_dotacao)}</td>
+          <td style="text-align:right;color:#2563eb">${fmtE(d.valor_empenhado)}</td>
+          <td style="text-align:right;color:#d97706">${fmtE(d.valor_liquidado)}</td>
+          <td style="text-align:right;font-weight:600;color:${sc}">${fmtE(d.valor_pago)}</td>
+        </tr>`;
+      };
+      const tbody = findTbody();
+      if (tbody) {
+        extras.forEach(ex => tbody.insertAdjacentHTML('beforeend', makeRow(ex.dados || {})));
+      } else {
+        let rows = extras.map(ex => makeRow(ex.dados || {})).join('');
+        const thead = '<tr><th>Nº</th><th>Órgão</th><th>Subfunção</th><th>Localidade</th><th style="text-align:right">Dotação</th><th style="text-align:right">Empenhado</th><th style="text-align:right">Liquidado</th><th style="text-align:right">Pago</th></tr>';
+        const card = `<div class="materia-card"><div class="table-wrap"><table><thead>${thead}</thead><tbody>${rows}</tbody></table></div></div>`;
+        const semEl = el.querySelector('.empty-tab');
+        if (semEl) { semEl.replaceWith(document.createRange().createContextualFragment(card)); }
+        else { el.insertAdjacentHTML('beforeend', card); }
+      }
+      break;
+    }
+
+    // ── Comissões ────────────────────────────────────────────────────────────
+    // Normal: h3 section-title + table-wrap / 3 cols (Comissão|Cargo|Período)
+    case 'comissoes': {
+      const makeRow = d => {
+        const ini = fmtDate(d.data_inicio)||'', fim = fmtDate(d.data_fim)||'';
+        const periodo = ini && fim ? `${ini} a ${fim}` : ini || fim || '—';
+        return `<tr>
+          <td style="font-weight:500"><span style="color:var(--accent)">${esc(d.comissao||'—')}</span></td>
+          <td style="color:#374151">${esc(d.cargo||'—')}</td>
+          <td style="color:#6b7280;white-space:nowrap">${periodo}</td>
+        </tr>`;
+      };
+      const tbody = findTbody();
+      if (tbody) {
+        extras.forEach(ex => tbody.insertAdjacentHTML('beforeend', makeRow(ex.dados || {})));
+      } else {
+        let rows = extras.map(ex => makeRow(ex.dados || {})).join('');
+        const html = `<h3 class="section-title">Participações em Comissão (${extras.length})</h3>`
+          + `<div class="table-wrap"><table><thead><tr><th>Comissão</th><th>Cargo</th><th>Período de participação</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+        const semEl = el.querySelector('.empty-tab');
+        if (semEl) { el.innerHTML = html; } else { el.insertAdjacentHTML('beforeend', html); }
+      }
+      break;
+    }
+
+    // ── Frentes ──────────────────────────────────────────────────────────────
+    // Normal: h3 + total div + table-wrap / 4 cols (Frente|Cargo|Data Entrada|Data Saída)
+    case 'frentes': {
+      const makeRow = d => `<tr>
+        <td style="font-weight:600">${esc(d.frente_nome||'—')}</td>
+        <td style="color:#111827">${esc(d.cargo||'—')}</td>
+        <td style="color:#111827">—</td>
+        <td style="color:#111827">—</td>
+      </tr>`;
+      const tbody = findTbody();
+      if (tbody) {
+        extras.forEach(ex => tbody.insertAdjacentHTML('beforeend', makeRow(ex.dados || {})));
+      } else {
+        let rows = extras.map(ex => makeRow(ex.dados || {})).join('');
+        const html = `<h3 class="section-title">Frentes Parlamentares</h3>`
+          + `<div style="margin-bottom:16px;font-size:14px;color:var(--muted)">Total: <strong style="color:#111827">${extras.length}</strong></div>`
+          + `<div class="table-wrap"><table><thead><tr><th>Frente</th><th>Cargo</th><th>Data de Entrada</th><th>Data de Saída</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+        const semEl = el.querySelector('.empty-tab');
+        if (semEl) { el.innerHTML = html; } else { el.insertAdjacentHTML('beforeend', html); }
+      }
+      break;
+    }
+
+    // ── Filiações ────────────────────────────────────────────────────────────
+    // Normal: h3 section-title (N) + table-wrap / 4 cols (Partido|Data Fil|Data Desfil|Status)
+    case 'filiacoes': {
+      const makeRow = d => {
+        const isActive = !d.data_desfiliacao;
+        const pc = partyColor(d.partido || '');
+        return `<tr>
+          <td><span class="card-party" style="background:${pc[0]};color:${pc[1]};margin-right:8px">${esc(d.partido||'?')}</span></td>
+          <td style="color:#111827">${fmtDate(d.data_filiacao)||'—'}</td>
+          <td style="color:#111827">${fmtDate(d.data_desfiliacao)||'—'}</td>
+          <td><span class="td-titular ${isActive?'yes':'no'}">${isActive?'Atual':'Encerrada'}</span></td>
+        </tr>`;
+      };
+      const tbody = findTbody();
+      if (tbody) {
+        extras.forEach(ex => tbody.insertAdjacentHTML('beforeend', makeRow(ex.dados || {})));
+      } else {
+        let rows = extras.map(ex => makeRow(ex.dados || {})).join('');
+        const html = `<h3 class="section-title">Filiações Partidárias (${extras.length})</h3>`
+          + `<div class="table-wrap"><table><thead><tr><th>Partido</th><th>Data Filiação</th><th>Data Desfiliação</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+        const semEl = el.querySelector('.empty-tab');
+        if (semEl) { el.innerHTML = html; } else { el.insertAdjacentHTML('beforeend', html); }
+      }
+      break;
+    }
+
+    // ── Relatorias ───────────────────────────────────────────────────────────
+    // Normal: h3 (N) + <div id="tab-relatorias"> + table-wrap / 4 cols — linhas clicáveis
+    case 'relatorias': {
+      const makeRow = d => {
+        const k = _storeExtra(d, 'relatorias');
+        const destStr = d.data_destituicao ? fmtDate(d.data_destituicao) : '<span style="color:#16a34a;font-size:.8em">Em exercício</span>';
+        return `<tr style="cursor:pointer" onclick="openExtraDetail(${k})" title="Clique para ver detalhes">
+          <td style="font-weight:500;color:var(--accent)">${esc(d.materia||'—')}</td>
+          <td style="color:#111827">${esc(d.comissao||'—')}</td>
+          <td style="color:#111827">${fmtDate(d.data_designacao)||'—'}</td>
+          <td>${destStr}</td>
+        </tr>`;
+      };
+      const tbody = el.querySelector('#tab-relatorias table tbody') || findTbody();
+      if (tbody) {
+        extras.forEach(ex => tbody.insertAdjacentHTML('beforeend', makeRow(ex.dados || {})));
+      } else {
+        let rows = extras.map(ex => makeRow(ex.dados || {})).join('');
+        const html = `<h3 class="section-title">Relatorias (${extras.length})</h3>`
+          + `<div id="tab-relatorias"><div class="table-wrap"><table><thead><tr><th>Matéria</th><th>Comissão</th><th>Designação</th><th>Destituição</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+        const semEl = el.querySelector('.empty-tab');
+        if (semEl) { el.innerHTML = html; } else { el.insertAdjacentHTML('beforeend', html); }
+      }
+      break;
+    }
+  }
+}
+
 init();

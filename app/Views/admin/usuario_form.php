@@ -42,12 +42,10 @@
       <label>Nível de acesso</label>
       <select name="nivel" class="form-select">
         <?php if (Auth::isSuperAdmin()): ?>
-        <option value="0">0 — SuperAdmin</option>
-        <option value="1">1 — ClienteAdmin</option>
+        <option value="0">SuperAdmin</option>
+        <option value="1">Admin</option>
         <?php endif; ?>
-        <option value="2">2 — Gestor</option>
-        <option value="3">3 — Analista</option>
-        <option value="4" selected>4 — Visualizador</option>
+        <option value="2" selected>Cliente</option>
       </select>
     </div>
 

@@ -11,6 +11,7 @@ require APP  . '/Core/View.php';
 require APP  . '/Core/Controller.php';
 require APP  . '/Core/Router.php';
 require APP  . '/Core/SaplApi.php';
+require APP  . '/Core/Mailer.php';
 
 // Models
 require APP . '/Models/Usuario.php';
@@ -37,9 +38,13 @@ session_start();
 $router = new Router();
 
 // Auth
-$router->add('GET',  '/login',   'AuthController', 'loginForm');
-$router->add('POST', '/login',   'AuthController', 'login');
-$router->add('GET',  '/logout',  'AuthController', 'logout');
+$router->add('GET',  '/login',          'AuthController', 'loginForm');
+$router->add('POST', '/login',          'AuthController', 'login');
+$router->add('GET',  '/logout',         'AuthController', 'logout');
+$router->add('GET',  '/esqueci-senha',  'AuthController', 'forgotForm');
+$router->add('POST', '/esqueci-senha',  'AuthController', 'forgot');
+$router->add('GET',  '/redefinir-senha','AuthController', 'resetForm');
+$router->add('POST', '/redefinir-senha','AuthController', 'reset');
 
 // Projetos
 $router->add('GET',  '/projetos',              'ProjetosController', 'index');
@@ -96,6 +101,22 @@ $router->add('POST', '/api/parl-count',    'ApiController', 'updateParlTotal');
 $router->add('POST', '/api/cache/invalidar',   'ApiController', 'cacheInvalidar');
 $router->add('GET',  '/api/cache/status',      'ApiController', 'cacheStatus');
 $router->add('GET',  '/api/bulk',              'ApiController', 'bulk');
-$router->add('GET',  '/api/cache/sincronizar', 'ApiController', 'sincronizar');
+$router->add('GET',    '/api/cache/sincronizar',   'ApiController', 'sincronizar');
+$router->add('GET',    '/api/agente-historico',    'ApiController', 'agenteHistorico');
+$router->add('POST',   '/api/agente-historico',    'ApiController', 'agenteHistorico');
+$router->add('DELETE', '/api/agente-historico',    'ApiController', 'agenteHistorico');
+$router->add('GET',    '/api/extras',              'ApiController', 'extras');
+$router->add('POST',   '/api/extras',              'ApiController', 'extras');
+$router->add('PUT',    '/api/extras',              'ApiController', 'extras');
+$router->add('DELETE', '/api/extras',              'ApiController', 'extras');
+
+// Admin: Dados Manuais (SuperAdmin)
+$router->add('GET',  '/admin/extras',              'AdminController', 'extras');
+$router->add('POST', '/admin/extras/listar-parls', 'AdminController', 'extrasListarParls');
+
+// Admin: E-mail / SMTP (SuperAdmin)
+$router->add('GET',  '/admin/smtp',        'AdminController', 'smtp');
+$router->add('POST', '/admin/smtp',        'AdminController', 'smtpSave');
+$router->add('POST', '/admin/smtp/testar', 'AdminController', 'smtpTestar');
 
 $router->dispatch();

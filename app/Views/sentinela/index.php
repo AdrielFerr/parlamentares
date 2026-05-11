@@ -190,15 +190,19 @@ let nextLocalId = 1;
 let busy = false;
 let conversationHistory = [];
 const MAX_HISTORY_TURNS = 20;
-const HISTORY_KEY = 'sentinela_history_' + PROJETO_ID;
+const HIST_URL = '<?= BASE_PATH ?>/api/agente-historico?contexto=sentinela';
 
 function saveHistory() {
-  try { sessionStorage.setItem(HISTORY_KEY, JSON.stringify(conversationHistory)); } catch(e) {}
+  fetch(HIST_URL, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json','X-CSRF-Token': CSRF_TOKEN},
+    body: JSON.stringify({historico: conversationHistory})
+  }).catch(()=>{});
 }
 
 function clearHistory() {
   conversationHistory = [];
-  try { sessionStorage.removeItem(HISTORY_KEY); } catch(e) {}
+  fetch(HIST_URL, {method:'DELETE', headers:{'X-CSRF-Token': CSRF_TOKEN}}).catch(()=>{});
   const ca = document.getElementById('chatArea');
   ca.innerHTML = '';
   ca.appendChild(emptyStateEl());
@@ -221,11 +225,11 @@ function emptyStateEl() {
   return d;
 }
 
-function loadHistory() {
+async function loadHistory() {
   try {
-    const raw = sessionStorage.getItem(HISTORY_KEY);
-    if (!raw) return;
-    const history = JSON.parse(raw);
+    const res  = await fetch(HIST_URL);
+    const data = await res.json();
+    const history = data.historico;
     if (!Array.isArray(history) || !history.length) return;
     conversationHistory = history;
     history.forEach(msg => {
@@ -375,7 +379,7 @@ const inputEl  = document.getElementById('userInput');
 
 chatArea.appendChild(emptyStateEl());
 renderCtx();
-loadHistory();
+(async () => { await loadHistory(); })();
 
 inputEl.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); } });
 inputEl.addEventListener('input', () => { inputEl.style.height = '44px'; inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px'; });
