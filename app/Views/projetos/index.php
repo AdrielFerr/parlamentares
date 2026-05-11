@@ -99,6 +99,10 @@ foreach ($fontes as $f) {
       <!-- ── Rodapé ── -->
       <div class="card-footer">
         <?php if (Auth::isSuperAdmin()): ?>
+        <button class="btn-delete" onclick="confirmarExcluir(<?= $p['id'] ?>, <?= htmlspecialchars(json_encode($p['nome'])) ?>)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+          Excluir
+        </button>
         <button class="btn-edit" onclick="abrirModalEditar(<?= $p['id'] ?>)">Editar</button>
         <?php endif; ?>
         <button class="btn-select"
@@ -115,6 +119,33 @@ foreach ($fontes as $f) {
   </div><!-- /cards-grid -->
 </div><!-- /pg-wrap -->
 
+
+<!-- ════════════════════════════════════════════════════════
+     MODAL CONFIRMAR EXCLUSÃO
+  ══════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="modalExcluirOverlay" onclick="fecharModalExcluir(event)">
+  <div class="modal-box modal-box-sm" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h2 style="color:#dc2626;display:flex;align-items:center;gap:10px">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+        Excluir Projeto
+      </h2>
+      <button class="modal-close" onclick="fecharModalExcluir()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:14px;color:#374151;margin-bottom:8px">Tem certeza que deseja excluir o projeto:</p>
+      <p id="excluirNomeProjeto" style="font-size:15px;font-weight:700;color:#111827;background:#f9fafb;border:1.5px solid #e5e7eb;border-radius:8px;padding:10px 14px;margin-bottom:12px"></p>
+      <p style="font-size:13px;color:#6b7280">Esta ação não pode ser desfeita.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="fecharModalExcluir()">Cancelar</button>
+      <button class="btn-danger-confirm" id="btnConfirmarExcluir" onclick="executarExcluir()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+        Excluir
+      </button>
+    </div>
+  </div>
+</div>
 
 <!-- ════════════════════════════════════════════════════════
      MODAL NOVO / EDITAR PROJETO
@@ -459,6 +490,36 @@ function removerDashboard(i) {
 
 function escHtml(str) {
   return String(str || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+/* ─── Excluir projeto ─── */
+var _excluirId = null;
+
+function confirmarExcluir(id, nome) {
+  _excluirId = id;
+  document.getElementById('excluirNomeProjeto').textContent = nome;
+  document.getElementById('modalExcluirOverlay').classList.add('open');
+}
+
+function fecharModalExcluir(evt) {
+  if (evt && evt.target !== document.getElementById('modalExcluirOverlay')) return;
+  document.getElementById('modalExcluirOverlay').classList.remove('open');
+  _excluirId = null;
+}
+
+function executarExcluir() {
+  if (!_excluirId) return;
+  const btn = document.getElementById('btnConfirmarExcluir');
+  btn.disabled = true;
+  btn.textContent = 'Excluindo…';
+  const form = document.createElement('form');
+  form.method = 'POST';
+  form.action = BASE_PATH + '/projetos/deletar';
+  form.innerHTML =
+    '<input name="_token" value="' + escHtml(CSRF) + '">' +
+    '<input name="id" value="' + _excluirId + '">';
+  document.body.appendChild(form);
+  form.submit();
 }
 
 /* ─── Salvar projeto (AJAX) ─── */
