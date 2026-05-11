@@ -4,7 +4,7 @@ $projetoNome       = Auth::projetoNome();
 $userNome          = Auth::user()['nome']  ?? '';
 $userEmail         = Auth::user()['email'] ?? '';
 $userNivel         = Auth::nivel();
-$lvls              = ['SuperAdmin','Administrador','Gestor','Analista','Visualizador'];
+$lvls              = ['SuperAdmin', 'Admin', 'Cliente'];
 $userRole          = $lvls[$userNivel] ?? 'Usuário';
 
 $partes    = array_filter(explode(' ', trim($userNome)));
@@ -134,27 +134,27 @@ input:focus,select.form-select:focus,textarea:focus{border-color:var(--accent);b
 .error-msg{background:var(--red-light);color:var(--red);border:1px solid #fecaca;border-radius:8px;padding:9px 13px;font-size:13px;margin-bottom:16px}
 
 /* ── RESPONSIVE ── */
-.mob-menu-btn{display:none;position:fixed;bottom:20px;right:20px;z-index:200;width:46px;height:46px;border-radius:50%;background:var(--accent);color:#fff;border:none;font-size:22px;box-shadow:0 4px 16px rgba(0,0,0,.2);align-items:center;justify-content:center;cursor:pointer}
+.mob-ham-btn{display:none;align-items:center;justify-content:center;width:36px;height:36px;border-radius:8px;background:none;border:1.5px solid var(--border);color:var(--text);font-size:18px;cursor:pointer;flex-shrink:0;transition:background .15s}
+.mob-ham-btn:hover{background:#f3f4f6}
 @media(max-width:768px){
   .sidebar{transform:translateX(-100%);transition:transform .25s ease;z-index:200}
   .sidebar.open{transform:translateX(0)}
   .mob-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:190}
   .mob-overlay.open{display:block}
   .main-wrap{margin-left:0}
-  .mob-menu-btn{display:flex}
-  .main-content{padding:16px}
-  .topbar{padding:0 14px}
+  .mob-ham-btn{display:flex}
+  .main-content{padding:14px 14px 24px}
+  .topbar{padding:0 14px;gap:8px}
+  .topbar-projeto span{font-size:12px;padding:3px 10px 3px 7px}
   .cfg-grid{grid-template-columns:1fr!important}
   .mem-table th:nth-child(2),.mem-table td:nth-child(2){display:none}
+  .tb-dropdown{min-width:190px}
 }
 </style>
 </head>
 <body>
 
 <div class="mob-overlay" id="mobOverlay" onclick="closeSidebar()"></div>
-<button class="mob-menu-btn" id="mobMenuBtn" onclick="toggleSidebar()">
-  <i class="ph ph-list"></i>
-</button>
 
 <!-- ══ SIDEBAR ══ -->
 <aside class="sidebar" id="appSidebar">
@@ -205,6 +205,9 @@ input:focus,select.form-select:focus,textarea:focus{border-color:var(--accent);b
   <!-- Topbar -->
   <header class="topbar">
     <div class="topbar-left">
+      <button class="mob-ham-btn" onclick="toggleSidebar()" aria-label="Menu">
+        <i class="ph ph-list"></i>
+      </button>
       <?php if ($projetoNome): ?>
       <div class="topbar-projeto">
         <span style="display:inline-flex;align-items:center;gap:6px;background:var(--accent-light);border:1px solid #bbf7d0;border-radius:20px;padding:4px 12px 4px 8px;font-size:13px;font-weight:600;color:var(--accent-dark)">

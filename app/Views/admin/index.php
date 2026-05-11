@@ -63,4 +63,28 @@ $clienteNome  = $ctx['nome'] ?? 'Sistema';
   </a>
   <?php endif; ?>
 
+  <?php if ($isGlobalView): ?>
+  <a href="<?= BASE_PATH ?>/admin/extras" class="hub-card">
+    <div class="hub-card-icon" style="background:#fff1f2">
+      <i class="ph ph-database" style="color:#e11d48"></i>
+    </div>
+    <div class="hub-card-body">
+      <div class="hub-card-title">Dados Manuais</div>
+      <div class="hub-card-desc">Insira dados manualmente para qualquer parlamentar em qualquer aba — biografias, matérias, emendas e mais.</div>
+    </div>
+  </a>
+  <?php endif; ?>
+
+  <?php if ($isGlobalView): ?>
+  <a href="<?= BASE_PATH ?>/admin/smtp" class="hub-card">
+    <div class="hub-card-icon" style="background:#f0fdf4">
+      <i class="ph ph-envelope" style="color:#16a34a"></i>
+    </div>
+    <div class="hub-card-body">
+      <div class="hub-card-title">E-mail</div>
+      <div class="hub-card-desc">Configure o servidor SMTP e personalize o e-mail de redefinição de senha.</div>
+    </div>
+  </a>
+  <?php endif; ?>
+
 </div>

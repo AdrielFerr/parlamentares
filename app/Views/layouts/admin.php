@@ -28,6 +28,7 @@ $breadcrumbMap = [
     '/admin/clientes'      => ['label' => 'Clientes',          'up' => '/admin'],
     '/admin/clientes/novo' => ['label' => 'Novo Cliente',      'up' => '/admin/clientes'],
     '/admin/aparencia'     => ['label' => 'Aparência',         'up' => '/admin'],
+    '/admin/smtp'          => ['label' => 'E-mail',            'up' => '/admin'],
     '/perfil'              => ['label' => 'Meu Perfil',        'up' => '/admin'],
 ];
 $breadcrumb = null;

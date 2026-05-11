@@ -27,7 +27,7 @@ class AdminController extends Controller {
 
     public function index(): void {
         $this->requireAuth(1);
-        if (Auth::nivel() === 1) {
+        if (Auth::nivel() === 1 && !Auth::isSuperAdmin()) {
             $this->redirect('/admin/usuarios');
             return;
         }
@@ -75,8 +75,10 @@ class AdminController extends Controller {
         // SuperAdmin em visão global pode escolher pelo formulário.
         $clienteId = $ctx['id'] ?? ((int)($_POST['cliente_id'] ?? 0) ?: null);
 
-        $nivel = (int) ($_POST['nivel'] ?? 4);
+        $nivel = (int) ($_POST['nivel'] ?? 2);
+        // Admin só pode criar até nivel 2 (Cliente); SuperAdmin pode criar qualquer nivel
         if (!Auth::isSuperAdmin() && $nivel < 1) $nivel = 1;
+        if ($nivel > 2) $nivel = 2;
 
         (new Usuario())->createUser(
             trim($_POST['nome']  ?? ''),
@@ -345,5 +347,121 @@ class AdminController extends Controller {
         }
 
         $this->redirect('/admin/aparencia');
+    }
+
+    public function extras(): void {
+        $this->requireSuperAdmin();
+        $db      = Database::connect();
+        $fontes  = $db->query("SELECT source_key, label FROM fontes_legislativas ORDER BY label")->fetchAll(PDO::FETCH_ASSOC);
+        $source  = $_GET['source'] ?? '';
+        $saplId  = (int)($_GET['sapl_id'] ?? 0);
+        $aba     = $_GET['aba'] ?? 'inicio';
+
+        $parlamentar = null;
+        $parls       = [];
+        $entries     = [];
+
+        if ($source) {
+            $st = $db->prepare(
+                "SELECT sapl_id, nome_parlamentar, nome_completo, partido_sigla, ativo
+                 FROM parl_parlamentares WHERE source_key=? ORDER BY nome_parlamentar"
+            );
+            $st->execute([$source]);
+            $parls = $st->fetchAll(PDO::FETCH_ASSOC);
+        }
+
+        if ($source && $saplId) {
+            $st = $db->prepare("SELECT * FROM parl_parlamentares WHERE source_key=? AND sapl_id=? LIMIT 1");
+            $st->execute([$source, $saplId]);
+            $parlamentar = $st->fetch(PDO::FETCH_ASSOC) ?: null;
+
+            $st2 = $db->prepare(
+                "SELECT id, titulo, dados_json, criado_em FROM parl_extras
+                 WHERE source_key=? AND sapl_id=? AND aba=? ORDER BY criado_em ASC"
+            );
+            $st2->execute([$source, $saplId, $aba]);
+            $entries = $st2->fetchAll(PDO::FETCH_ASSOC);
+        }
+
+        $this->render('admin/extras', compact('fontes','source','saplId','aba','parlamentar','parls','entries'), 'admin');
+    }
+
+    public function extrasListarParls(): void {
+        $this->requireSuperAdmin();
+        $source = $_POST['source'] ?? '';
+        if (!$source) { $this->json([]); return; }
+        $db = Database::connect();
+        $st = $db->prepare(
+            "SELECT sapl_id, nome_parlamentar, partido_sigla, ativo FROM parl_parlamentares WHERE source_key=? ORDER BY nome_parlamentar"
+        );
+        $st->execute([$source]);
+        $this->json($st->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    // ─── E-mail / SMTP ────────────────────────────────────────────────────────
+
+    public function smtp(): void {
+        $this->requireSuperAdmin();
+        $cfg   = Configuracao::forCliente(null);
+        $ctx   = ['id' => null, 'nome' => 'Sistema'];
+        $msg   = null;
+        $error = null;
+        $this->render('admin/smtp', compact('cfg', 'ctx', 'msg', 'error'), 'admin');
+    }
+
+    public function smtpSave(): void {
+        $this->requireSuperAdmin();
+        $this->verifyCsrf();
+
+        $fields = [
+            'smtp_host'           => trim($_POST['smtp_host']           ?? ''),
+            'smtp_port'           => trim($_POST['smtp_port']           ?? '587'),
+            'smtp_encryption'     => in_array($_POST['smtp_encryption'] ?? '', ['tls','ssl','none']) ? $_POST['smtp_encryption'] : 'tls',
+            'smtp_user'           => trim($_POST['smtp_user']           ?? ''),
+            'smtp_from_email'     => trim($_POST['smtp_from_email']     ?? ''),
+            'smtp_from_name'      => trim($_POST['smtp_from_name']      ?? APP_NAME),
+            'email_reset_assunto' => trim($_POST['email_reset_assunto'] ?? ''),
+            'email_reset_corpo'   => $_POST['email_reset_corpo']        ?? '',
+        ];
+
+        $novaSenha = $_POST['smtp_pass'] ?? '';
+        if ($novaSenha !== '') {
+            $fields['smtp_pass'] = $novaSenha;
+        }
+
+        foreach ($fields as $chave => $valor) {
+            if ($valor !== '') {
+                Configuracao::set($chave, $valor, null);
+            }
+        }
+
+        $cfg   = Configuracao::forCliente(null);
+        $ctx   = ['id' => null, 'nome' => 'Sistema'];
+        $msg   = 'Configurações salvas com sucesso.';
+        $error = null;
+        $this->render('admin/smtp', compact('cfg', 'ctx', 'msg', 'error'), 'admin');
+    }
+
+    public function smtpTestar(): void {
+        $this->requireSuperAdmin();
+        $this->verifyCsrf();
+
+        $user   = Auth::user();
+        $result = Mailer::send(
+            $user['email'],
+            $user['nome'],
+            'Teste de E-mail — ' . APP_NAME,
+            '<div style="font-family:Arial,sans-serif;padding:32px;max-width:480px;margin:0 auto;background:#fff;border-radius:12px">'
+            . '<h2 style="color:#111827;margin-top:0">Teste de SMTP</h2>'
+            . '<p style="color:#6b7280">Este é um e-mail de teste enviado pela plataforma <strong>' . htmlspecialchars(APP_NAME) . '</strong>.</p>'
+            . '<p style="color:#16a34a;font-weight:700">✓ Configuração SMTP funcionando corretamente!</p>'
+            . '</div>'
+        );
+
+        if ($result === true) {
+            $this->json(['ok' => true,  'msg' => 'E-mail enviado com sucesso para ' . $user['email'] . '!']);
+        } else {
+            $this->json(['ok' => false, 'msg' => $result]);
+        }
     }
 }

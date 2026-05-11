@@ -5,3 +5,13 @@
 .vscode/
 .claude/
 public/uploads/
+
+# Testes, checks e scripts de debug — não sobem para produção
+database/test_*.php
+database/check_*.php
+database/debug_*.php
+database/_check_*.php
+database/seed_*teste*.php
+AUDITORIA.md
+SUMMARY.txt
+test_api.php

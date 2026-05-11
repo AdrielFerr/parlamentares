@@ -23,9 +23,13 @@ class ProjetosController extends Controller {
             $projetos = $model->byCliente((int)$user['cliente_id']);
         }
 
-        /* parl_total já vem da tabela projetos (salvo pelo JS no primeiro acesso) */
+        /* parl_total vem da tabela projetos; se ainda for 0, conta direto do cache */
         foreach ($projetos as &$p) {
-            $p['parl_count'] = (int)($p['parl_total'] ?? 0);
+            $parlTotal = (int)($p['parl_total'] ?? 0);
+            if ($parlTotal === 0 && !empty($p['source_key'])) {
+                $parlTotal = $model->countParlamentares($p['source_key']);
+            }
+            $p['parl_count'] = $parlTotal;
         }
         unset($p);
 

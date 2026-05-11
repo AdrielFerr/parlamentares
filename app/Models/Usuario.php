@@ -44,6 +44,16 @@ class Usuario extends Model {
         return password_verify($senha, $hash);
     }
 
+    public function findByResetToken(string $token): ?array {
+        if (!$token) return null;
+        $st = $this->db->prepare(
+            "SELECT * FROM usuarios WHERE reset_token = ? AND ativo = 1 AND reset_expires_at > NOW() LIMIT 1"
+        );
+        $st->execute([$token]);
+        $row = $st->fetch();
+        return $row ?: null;
+    }
+
     public function levelLabel(int $nivel): string {
         return match($nivel) {
             0 => 'SuperAdmin',

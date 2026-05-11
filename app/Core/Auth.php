@@ -1,6 +1,6 @@
 <?php
 class Auth {
-    // Níveis: 0=SuperAdmin, 1=ClienteAdmin, 2=Gestor, 3=Analista, 4=Visualizador
+    // Níveis: 0=SuperAdmin, 1=Admin, 2=Cliente
     public static function check(): bool {
         return isset($_SESSION['user_id']);
     }
@@ -50,7 +50,11 @@ class Auth {
         session_destroy();
     }
 
-    public static function require(int $maxNivel = 4): void {
+    public static function isAdmin(): bool {
+        return self::nivel() <= 1;
+    }
+
+    public static function require(int $maxNivel = 2): void {
         if (!self::check()) {
             header('Location: ' . BASE_PATH . '/login');
             exit;

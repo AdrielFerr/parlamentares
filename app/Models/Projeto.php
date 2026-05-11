@@ -40,12 +40,12 @@ class Projeto extends Model {
         return $row ?: null;
     }
 
-    /* ── Conta parlamentares no cache para a source_key do projeto ── */
+    /* ── Conta parlamentares na tabela parl_parlamentares para o projeto ── */
     public function countParlamentares(string $sourceKey): int {
         if (!$sourceKey) return 0;
         try {
             $st = $this->db->prepare(
-                "SELECT COUNT(*) FROM parlamentares_cache WHERE source_key = ?"
+                "SELECT COUNT(*) FROM parl_parlamentares WHERE source_key = ?"
             );
             $st->execute([$sourceKey]);
             return (int)$st->fetchColumn();
@@ -121,7 +121,7 @@ class Projeto extends Model {
             $st->execute([$projetoId, $clienteId]);
             return (bool)$st->fetch();
         }
-        // Administrador do sistema (nivel=1, sem cliente): verifica projeto_admins
+        // Admin (nivel=1, sem cliente vinculado): verifica projeto_admins
         $this->ensureAdminsTable();
         $st = $this->db->prepare("SELECT 1 FROM projeto_admins WHERE projeto_id = ? AND usuario_id = ?");
         $st->execute([$projetoId, $userId]);
