@@ -3,7 +3,7 @@
     <div class="login-logo">
       <?php $_loginLogo = Configuracao::logoUrl(null) ?: '/public/assets/keek-verde.png'; ?>
       <img src="<?= htmlspecialchars(asset_url($_loginLogo)) ?>" alt="Logo">
-      <p>Plataforma de inteligência legislativa</p>
+      <p>Plataforma de Inteligência Política</p>
     </div>
 
     <?php if ($error): ?>

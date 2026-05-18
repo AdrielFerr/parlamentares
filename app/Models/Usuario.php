@@ -30,6 +30,19 @@ class Usuario extends Model {
     }
 
     public function createUser(string $nome, string $email, string $senha, int $nivel, ?int $clienteId): int {
+        $st = $this->db->prepare("SELECT id FROM usuarios WHERE email = ? LIMIT 1");
+        $st->execute([$email]);
+        $existing = $st->fetchColumn();
+        if ($existing) {
+            $this->update((int)$existing, [
+                'nome'       => $nome,
+                'senha_hash' => password_hash($senha, PASSWORD_BCRYPT),
+                'nivel'      => $nivel,
+                'cliente_id' => $clienteId,
+                'ativo'      => 1,
+            ]);
+            return (int)$existing;
+        }
         return $this->insert([
             'nome'       => $nome,
             'email'      => $email,
