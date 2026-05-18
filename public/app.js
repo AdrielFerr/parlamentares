@@ -8,7 +8,7 @@ const API_BASE   = APP_CONFIG.saplBaseUrl;
 
 let allParlamentares=[], allLegislaturas=[], allPartidos={}, allPartidosSigla={};
 let mandatosByLeg=[], selectedLeg="", search="";
-let onlyActive=true, onlyTitular=false;
+let onlyActive=true, onlyTitular=false, selectedPartidos=new Set();
 let currentProfile=null, activeTab="inicio";
 let tipoNomes={};       // materia: sigla → nome completo
 let tipoNomesRev={};    // materia: nome completo → sigla
@@ -337,6 +337,9 @@ function getFilteredList() {
   }
   if(onlyTitular)list=list.filter(p=>!!p._tit);
   if(onlyActive)list=list.filter(p=>!!p.ativo);
+  if(selectedPartidos.size>0){
+    list=list.filter(p=>selectedPartidos.has(p.partido?.sigla||p.partido_sigla||''));
+  }
   if(search.trim()){
     const s=search.toLowerCase();
     list=list.filter(p=>{
@@ -375,8 +378,26 @@ function renderList() {
   const list=getFilteredList();
   const li  =buildLegInfo();
 
+  const partidos=[...new Set(allParlamentares.map(p=>p.partido?.sigla||p.partido_sigla||'').filter(Boolean))].sort();
+  const nSel=selectedPartidos.size;
+  const btnLabel=nSel===0?'Todos os partidos':nSel===1?[...selectedPartidos][0]:`${nSel} partidos`;
   let h='<div class="controls"><div class="search-wrap"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>';
   h+=`<input type="text" id="searchInput" placeholder="Pesquisar parlamentar..." value="${esc(search)}" oninput="onSearch(this.value)"></div>`;
+  h+=`<div class="global-combo${nSel>0?' open':''}" id="partidoCombo" onclick="event.stopPropagation()">`;
+  h+=`<button type="button" class="global-combo-btn" onclick="togglePartidoDropdown()"${nSel>0?' style="border-color:var(--accent);font-weight:600"':''}>`;
+  h+=`<span class="global-combo-label">${esc(btnLabel)}</span>`;
+  h+=`<i class="ph ph-caret-down global-combo-caret"></i></button>`;
+  h+=`<div class="global-combo-menu" style="min-width:200px">`;
+  h+=`<div class="global-combo-search"><input type="text" placeholder="Buscar partido..." oninput="filterPartidoOptions(this.value)" onclick="event.stopPropagation()" autocomplete="off"></div>`;
+  h+=`<div class="global-combo-list" id="partidoList">`;
+  if(nSel>0) h+=`<button type="button" class="global-combo-item" data-search="" onclick="clearPartidos()" style="color:#dc2626;font-weight:600"><span class="global-combo-item-main">Limpar seleção</span></button>`;
+  partidos.forEach(s=>{
+    const chk=selectedPartidos.has(s);
+    h+=`<button type="button" class="global-combo-item${chk?' active':''}" data-search="${s.toLowerCase()}" onclick="togglePartidoItem('${esc(s)}')">`;
+    h+=`<span style="display:inline-flex;align-items:center;gap:8px"><span style="width:14px;height:14px;border-radius:3px;border:1.5px solid ${chk?'var(--accent)':'var(--border)'};background:${chk?'var(--accent)':'#fff'};flex-shrink:0;display:inline-flex;align-items:center;justify-content:center">${chk?'<svg width="9" height="9" viewBox="0 0 10 10"><polyline points="1.5,5 4,8 8.5,2" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>':''}</span>${esc(s)}</span>`;
+    h+=`</button>`;
+  });
+  h+=`</div></div></div>`;
   h+=`</div>`;
   h+=`<div class="stats" id="listStats"><span class="stats-badge">${list.length}</span> parlamentar${list.length!==1?'es':''} encontrado${list.length!==1?'s':''}${li}</div>`;
   h+='<div id="listGrid"></div>';
@@ -634,8 +655,8 @@ function buildDashEmendaHTML(emendas, parlId) {
   h+=`</div>`;
 
   h+=`<div class="chart-row" style="grid-template-columns:1fr 1fr">`;
-  h+=`<div class="chart-box"><h3 class="section-title" style="font-size:14px;margin-bottom:12px">Empenhado por Função</h3><div style="position:relative;height:220px"><canvas id="chartEmendaFuncao"></canvas></div></div>`;
-  h+=`<div class="chart-box"><h3 class="section-title" style="font-size:14px;margin-bottom:12px">Top Localidades (Empenhado)</h3><div style="position:relative;height:220px"><canvas id="chartEmendaLocal"></canvas></div></div>`;
+  h+=`<div class="chart-box"><h3 class="section-title" style="font-size:14px;margin-bottom:12px">Empenhado por Função</h3><div style="position:relative;height:260px"><canvas id="chartEmendaFuncao"></canvas></div></div>`;
+  h+=`<div class="chart-box"><h3 class="section-title" style="font-size:14px;margin-bottom:12px">Top Localidades (Empenhado)</h3><div style="position:relative;height:260px"><canvas id="chartEmendaLocal"></canvas></div></div>`;
   h+=`</div>`;
   h+=`</div>`;
   return h;
@@ -900,15 +921,28 @@ function redrawDashEmendaCharts(emendas) {
           tooltip:{callbacks:{label:ctx=>' '+fmtK(ctx.parsed.y)}},
           barValue:false,
         },
-        scales:{x:{ticks:{font,maxRotation:30},grid:{display:false}},y:{beginAtZero:true,ticks:{font,callback:v=>fmtK(v)},grid:{color:'rgba(0,0,0,.05)'}}}
+        scales:{
+          x:{ticks:{font,maxRotation:45,minRotation:30},grid:{display:false}},
+          y:{beginAtZero:true,ticks:{font,callback:v=>fmtK(v)},grid:{color:'rgba(0,0,0,.05)'}}
+        }
       },
-      plugins:[makeEmendaLabelPlugin(fmtK)],
+      plugins:[],
     });
   } else { showEmptyE('chartEmendaFuncao'); }
 
-  // Gráfico 2: Top 10 Localidades por Empenhado
+  // Gráfico 2: Top 10 Localidades por Empenhado (expande MÚLTIPLO pelos municípios reais)
   const byLocal={};
-  lista.forEach(e=>{ const l=e.localidade||'Não informado'; byLocal[l]=(byLocal[l]||0)+(e.valor_empenhado||0); });
+  lista.forEach(e=>{
+    if(e.municipios && e.municipios.length>0){
+      e.municipios.forEach(m=>{
+        const l=(m.municipio||'Não informado')+(m.uf?' - '+m.uf:'');
+        byLocal[l]=(byLocal[l]||0)+(m.emp||0);
+      });
+    } else {
+      const l=e.localidade||'Não informado';
+      byLocal[l]=(byLocal[l]||0)+(e.valor_empenhado||0);
+    }
+  });
   const localSorted=Object.entries(byLocal).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]).slice(0,10);
   if(localSorted.length){
     const lLabels=localSorted.map(([l])=>l.length>28?l.slice(0,26)+'…':l);
@@ -1672,16 +1706,50 @@ async function renderTabEmendas(p) {
     </tr></thead><tbody>`;
     dados.itens.forEach(e=>{
       const sc = e.valor_pago>0?'#16a34a':e.valor_liquidado>0?'#d97706':e.valor_empenhado>0?'#2563eb':'#9ca3af';
+      const hasMun = e.municipios && e.municipios.length > 0;
+      const isMultiplo = hasMun && e.municipios.length > 1;
+      const rowId = 'mun_' + (e.id||e.numero||Math.random().toString(36).slice(2)).toString().replace(/[^a-zA-Z0-9_-]/g,'_');
+      const localCell = isMultiplo
+        ? `<span onclick="toggleMunicipios('${rowId}')" style="cursor:pointer;color:#2563eb;font-weight:600;display:inline-flex;align-items:center;gap:4px">
+             <span id="${rowId}_ico">▶</span> múltiplo (${e.municipios.length})
+           </span>`
+        : hasMun
+          ? esc(e.municipios[0].municipio + (e.municipios[0].uf ? '/' + e.municipios[0].uf : ''))
+          : esc(e.localidade||'—');
       h+=`<tr>
         <td style="font-weight:600;white-space:nowrap">${esc(e.numero||'—')}</td>
         <td style="font-size:12px;max-width:160px">${esc(e.orgao||'—')}</td>
         <td style="font-size:12px;max-width:160px">${esc(e.acao||e.programa||'—')}</td>
         <td style="font-size:12px">${esc(e.subfuncao||'—')}</td>
-        <td style="font-size:12px">${esc(e.localidade||'—')}</td>
+        <td style="font-size:12px">${localCell}</td>
         <td style="text-align:right;color:#2563eb">${fmtBRL(e.valor_empenhado)}</td>
         <td style="text-align:right;color:#d97706">${fmtBRL(e.valor_liquidado)}</td>
         <td style="text-align:right;font-weight:600;color:${sc}">${fmtBRL(e.valor_pago)}</td>
       </tr>`;
+      if (isMultiplo) {
+        h+=`<tr id="${rowId}" style="display:none"><td colspan="8" style="padding:0">`;
+        h+=`<div style="background:#f8fafc;border-top:1px solid var(--border);padding:12px 16px">`;
+        h+=`<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Municípios contemplados</div>`;
+        h+=`<table style="width:100%;font-size:12px;border-collapse:collapse">`;
+        h+=`<thead><tr style="border-bottom:1px solid var(--border)">`;
+        h+=`<th style="text-align:left;padding:4px 8px;font-weight:600;color:var(--muted)">Município</th>`;
+        h+=`<th style="text-align:left;padding:4px 8px;font-weight:600;color:var(--muted)">UF</th>`;
+        h+=`<th style="text-align:right;padding:4px 8px;font-weight:600;color:var(--muted)">Empenhado</th>`;
+        h+=`<th style="text-align:right;padding:4px 8px;font-weight:600;color:var(--muted)">Liquidado</th>`;
+        h+=`<th style="text-align:right;padding:4px 8px;font-weight:600;color:var(--muted)">Pago</th>`;
+        h+=`</tr></thead><tbody>`;
+        e.municipios.forEach(m=>{
+          const mc = m.pag>0?'#16a34a':m.liq>0?'#d97706':m.emp>0?'#2563eb':'#9ca3af';
+          h+=`<tr style="border-bottom:1px solid #f0f0f0">`;
+          h+=`<td style="padding:5px 8px;font-weight:500">${esc(m.municipio||'—')}</td>`;
+          h+=`<td style="padding:5px 8px;color:var(--muted)">${esc(m.uf||'—')}</td>`;
+          h+=`<td style="padding:5px 8px;text-align:right;color:#2563eb">${fmtBRL(m.emp)}</td>`;
+          h+=`<td style="padding:5px 8px;text-align:right;color:#d97706">${fmtBRL(m.liq)}</td>`;
+          h+=`<td style="padding:5px 8px;text-align:right;font-weight:600;color:${mc}">${fmtBRL(m.pag)}</td>`;
+          h+=`</tr>`;
+        });
+        h+=`</tbody></table></div></td></tr>`;
+      }
     });
     h+=`</tbody></table></div></div>`;
   });
@@ -1712,6 +1780,15 @@ function clearEmendaFiltros(parlId) {
   _emendaLocal  = '';
   const p = allParlamentares.find(x=>x.id===parlId)||currentProfile;
   if(p) switchTab('emendas');
+}
+
+function toggleMunicipios(rowId) {
+  const row = document.getElementById(rowId);
+  const ico = document.getElementById(rowId + '_ico');
+  if (!row) return;
+  const visible = row.style.display !== 'none';
+  row.style.display = visible ? 'none' : '';
+  if (ico) ico.textContent = visible ? '▶' : '▼';
 }
 
 function showNormaGrupo(tipoRaw, ano, isPrimeiro, page) {
@@ -2294,7 +2371,10 @@ async function renderTabAgente(p) {
     ctx += '\n';
     ctx += `Emendas (ano, destino, função, valor dotado):\n`;
     emendas.slice(0,50).forEach(e=>{
-      ctx+=`  - ${e.ano||'—'} | Nº ${e.numero||'?'} | ${e.funcao||'—'} / ${e.subfuncao||'—'} | Destino: ${e.localidade||'—'} | Dotação: ${fmtM(e.valor_dotacao)} | Pago: ${fmtM(e.valor_pago)}\n`;
+      const destCtx = e.municipios && e.municipios.length
+        ? 'múltiplo (' + e.municipios.slice(0,5).map(m=>`${m.municipio}/${m.uf}: ${fmtM(m.emp)}`).join(', ') + (e.municipios.length>5?`, +${e.municipios.length-5}`:'') + ')'
+        : (e.localidade||'—');
+      ctx+=`  - ${e.ano||'—'} | Nº ${e.numero||'?'} | ${e.funcao||'—'} / ${e.subfuncao||'—'} | Destino: ${destCtx} | Dotação: ${fmtM(e.valor_dotacao)} | Pago: ${fmtM(e.valor_pago)}\n`;
     });
     if(emendas.length>50) ctx+=`  ... e mais ${emendas.length-50} emendas\n`;
     ctx += '\n';
@@ -2806,6 +2886,35 @@ function renderGlobalDashboardCharts() {
 function onChangeLeg(v){selectedLeg=v;loadMandatos().then(()=>renderList())}
 let st;
 function onSearch(v){search=v;clearTimeout(st);st=setTimeout(()=>renderGrid(),150)}
+function togglePartidoDropdown(){
+  const c=document.getElementById('partidoCombo');
+  if(!c)return;
+  const opening=!c.classList.contains('open');
+  c.classList.toggle('open');
+  if(opening){
+    const inp=c.querySelector('.global-combo-search input');
+    if(inp){inp.value='';filterPartidoOptions('');inp.focus();}
+  }
+}
+function togglePartidoItem(sigla){
+  if(selectedPartidos.has(sigla))selectedPartidos.delete(sigla);
+  else selectedPartidos.add(sigla);
+  renderList();
+  // reabre o dropdown após re-render
+  const c=document.getElementById('partidoCombo');
+  if(c){c.classList.add('open');setTimeout(()=>{const inp=c.querySelector('.global-combo-search input');if(inp)inp.focus();},0);}
+}
+function filterPartidoOptions(term){
+  const list=document.getElementById('partidoList');
+  if(!list)return;
+  const q=(term||'').toLowerCase();
+  list.querySelectorAll('.global-combo-item').forEach(btn=>{
+    const s=btn.getAttribute('data-search')||'';
+    btn.style.display=(!q||s.includes(q)||btn.style.color==='rgb(220, 38, 38)')?'flex':'none';
+  });
+}
+function clearPartidos(){selectedPartidos=new Set();renderList();}
+document.addEventListener('click',()=>{document.getElementById('partidoCombo')?.classList.remove('open');});
 function toggleActive(){onlyActive=!onlyActive;renderGrid();document.querySelector('[onclick="toggleActive()"]')?.classList.toggle('active',onlyActive)}
 function toggleTitular(){onlyTitular=!onlyTitular;renderGrid();document.querySelector('[onclick="toggleTitular()"]')?.classList.toggle('active',onlyTitular)}
 
