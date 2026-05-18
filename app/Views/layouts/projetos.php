@@ -3,7 +3,6 @@
 $user      = Auth::user();
 $lvls      = ['SuperAdmin','ClienteAdmin','Gestor','Analista','Visualizador'];
 $nivel     = $lvls[Auth::nivel()] ?? 'Usuário';
-$_logoProj = Configuracao::logoUrl(null);
 
 /* Iniciais do avatar: até 2 letras */
 $partes  = array_filter(explode(' ', trim($user['nome'] ?? 'U')));
@@ -13,6 +12,8 @@ $iniciais = strtoupper(substr($partes[0] ?? 'U', 0, 1) . substr(end($partes) ?? 
 $paleta  = ['#16a34a','#2563eb','#9333ea','#ea580c','#0891b2','#db2777','#ca8a04'];
 $corIdx  = abs(crc32($user['nome'] ?? '')) % count($paleta);
 $corAvatar = $paleta[$corIdx];
+$_logoUrlProjetos = Configuracao::logoUrl(Auth::clienteId());
+if (!$_logoUrlProjetos) $_logoUrlProjetos = '/public/assets/keek-verde.png';
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -28,16 +29,15 @@ $corAvatar = $paleta[$corIdx];
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth}
 body{font-family:'Inter',sans-serif;background:#f0f2f5;color:#111827;min-height:100vh}
+:root{--surface:rgba(255,255,255,.94)}
 a{text-decoration:none;color:inherit}
 button{font-family:inherit;cursor:pointer}
 input,select,textarea{font-family:inherit}
 
 /* ───────── Header fixo ───────── */
-.hd{position:fixed;top:0;left:0;right:0;z-index:200;background:#fff;border-bottom:1px solid #e5e7eb;box-shadow:0 1px 4px rgba(0,0,0,.06);height:56px;display:flex;align-items:center;padding:0 32px}
+.hd{position:fixed;top:0;left:0;right:0;z-index:200;background:var(--surface);backdrop-filter:blur(10px);border-bottom:1px solid #e5e7eb;box-shadow:0 1px 4px rgba(0,0,0,.06);height:56px;display:flex;align-items:center;padding:0 32px}
 .hd-brand{display:flex;align-items:center;gap:10px;flex:1}
-.hd-brand-logo{width:34px;height:34px;background:#16a34a;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:15px;letter-spacing:-.5px}
-.hd-brand-name{font-weight:700;font-size:16px;color:#111827;letter-spacing:-.3px}
-.hd-brand-sub{font-size:11px;color:#6b7280;font-weight:400}
+.hd-brand img{display:block;width:122px;height:auto;object-fit:contain}
 
 /* ───────── Menu usuário ───────── */
 .user-wrap{position:relative;display:flex;align-items:center;gap:10px;cursor:pointer;padding:6px 10px;border-radius:10px;transition:background .15s;user-select:none}
@@ -49,7 +49,7 @@ input,select,textarea{font-family:inherit}
 .user-caret{color:#9ca3af;font-size:11px;margin-left:4px;transition:transform .2s}
 .user-wrap.open .user-caret{transform:rotate(180deg)}
 
-.dropdown{position:absolute;top:calc(100% + 8px);right:0;background:#fff;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.12);min-width:210px;padding:6px;display:none;z-index:300}
+.dropdown{position:absolute;top:calc(100% + 8px);right:0;background:var(--surface);backdrop-filter:blur(10px);border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.12);min-width:210px;padding:6px;display:none;z-index:300}
 .dropdown.open{display:block}
 .dropdown a{display:flex;align-items:center;gap:10px;padding:9px 12px;font-size:13px;font-weight:500;color:#374151;border-radius:8px;transition:background .12s}
 .dropdown a:hover{background:#f3f4f6}
@@ -64,7 +64,7 @@ input,select,textarea{font-family:inherit}
 /* ───────── Toast ───────── */
 #toast{position:fixed;top:20px;right:20px;z-index:9999;transform:translateX(120%);transition:transform .35s cubic-bezier(.34,1.56,.64,1);pointer-events:none}
 #toast.show{transform:translateX(0)}
-.toast-inner{background:#fff;border:1px solid #e5e7eb;border-left:4px solid #16a34a;border-radius:10px;padding:14px 18px;display:flex;align-items:center;gap:10px;box-shadow:0 4px 20px rgba(0,0,0,.1);min-width:280px}
+.toast-inner{background:var(--surface);backdrop-filter:blur(10px);border:1px solid #e5e7eb;border-left:4px solid #16a34a;border-radius:10px;padding:14px 18px;display:flex;align-items:center;gap:10px;box-shadow:0 4px 20px rgba(0,0,0,.1);min-width:280px}
 .toast-icon{width:22px;height:22px;background:#dcfce7;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:#16a34a;font-size:12px;font-weight:700}
 .toast-text{font-size:13px;font-weight:500;color:#111827}
 
@@ -90,7 +90,7 @@ input,select,textarea{font-family:inherit}
 @media(max-width:768px){.cards-grid{grid-template-columns:1fr}}
 
 /* ───────── Card ───────── */
-.proj-card{background:#fff;border-radius:14px;border:1.5px solid #e5e7eb;box-shadow:0 1px 4px rgba(0,0,0,.05);padding:24px;transition:border-color .2s,box-shadow .2s,transform .15s;display:flex;flex-direction:column;gap:20px;position:relative;overflow:hidden}
+.proj-card{background:var(--surface);backdrop-filter:blur(10px);border-radius:14px;border:1.5px solid #e5e7eb;box-shadow:0 1px 4px rgba(0,0,0,.05);padding:24px;transition:border-color .2s,box-shadow .2s,transform .15s;display:flex;flex-direction:column;gap:20px;position:relative;overflow:hidden}
 .proj-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;background:transparent;border-radius:14px 0 0 14px;transition:background .2s}
 .proj-card:hover{border-color:#bbf7d0;box-shadow:0 4px 20px rgba(22,163,74,.1);transform:translateY(-2px)}
 .proj-card:hover::before{background:#16a34a}
@@ -112,7 +112,7 @@ input,select,textarea{font-family:inherit}
 .metric-item{}
 .metric-label{display:block;font-size:10px;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
 .metric-value{display:block;font-size:18px;font-weight:700;color:#111827;line-height:1.2}
-.metric-value.small{font-size:13px}
+.metric-value.small{font-size:13px;white-space:normal;overflow-wrap:anywhere;line-height:1.25}
 
 /* ───────── Rodapé do card ───────── */
 .card-footer{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:auto}
@@ -129,7 +129,7 @@ input,select,textarea{font-family:inherit}
 .btn-select.loading{opacity:.7;pointer-events:none}
 
 /* ───────── Empty state ───────── */
-.empty-state{grid-column:1/-1;text-align:center;padding:72px 24px;background:#fff;border-radius:14px;border:1.5px dashed #e5e7eb}
+.empty-state{grid-column:1/-1;text-align:center;padding:72px 24px;background:var(--surface);backdrop-filter:blur(10px);border-radius:14px;border:1.5px dashed #e5e7eb}
 .empty-state .es-icon{font-size:48px;margin-bottom:16px;opacity:.5}
 .empty-state h3{font-size:18px;font-weight:600;color:#374151;margin-bottom:8px}
 .empty-state p{font-size:14px;color:#9ca3af;margin-bottom:20px}
@@ -139,7 +139,7 @@ input,select,textarea{font-family:inherit}
 /* ───────── Modal ───────── */
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:500;display:flex;align-items:center;justify-content:center;padding:20px;opacity:0;pointer-events:none;transition:opacity .2s}
 .modal-overlay.open{opacity:1;pointer-events:all}
-.modal-box{background:#fff;border-radius:16px;width:100%;max-width:600px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.2);transform:translateY(16px) scale(.98);transition:transform .25s cubic-bezier(.34,1.2,.64,1)}
+.modal-box{background:var(--surface);backdrop-filter:blur(10px);border-radius:16px;width:100%;max-width:600px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.2);transform:translateY(16px) scale(.98);transition:transform .25s cubic-bezier(.34,1.2,.64,1)}
 .modal-overlay.open .modal-box{transform:translateY(0) scale(1)}
 .modal-header{display:flex;align-items:center;justify-content:space-between;padding:22px 24px 0}
 .modal-header h2{font-size:18px;font-weight:700;color:#111827}
@@ -186,15 +186,7 @@ input,select,textarea{font-family:inherit}
 <!-- ════════ HEADER ════════ -->
 <header class="hd">
   <div class="hd-brand">
-    <?php if ($_logoProj): ?>
-      <img src="<?= BASE_PATH . htmlspecialchars($_logoProj) ?>" alt="Logo" style="max-height:36px;max-width:150px;object-fit:contain;display:block">
-    <?php else: ?>
-      <div class="hd-brand-logo">K</div>
-      <div>
-        <div class="hd-brand-name"><?= APP_NAME ?></div>
-        <div class="hd-brand-sub">Inteligência Legislativa</div>
-      </div>
-    <?php endif; ?>
+    <img src="<?= htmlspecialchars(asset_url($_logoUrlProjetos)) ?>" alt="Logo">
   </div>
 
   <?php if (Auth::isSuperAdmin()): ?>

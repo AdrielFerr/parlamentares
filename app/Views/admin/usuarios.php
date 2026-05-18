@@ -17,7 +17,7 @@ function uAvatar(string $nome, array $paleta): array {
 
 <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:24px">
   <div>
-    <h1 id="pageTitle" style="font-family:'Playfair Display',serif;font-size:22px;font-weight:800;line-height:1.1">Membros da Equipe</h1>
+    <h1 id="pageTitle" style="font-family:'Inter',sans-serif;font-size:22px;font-weight:800;line-height:1.1;letter-spacing:0">Membros da Equipe</h1>
     <?php if (($ctx['id'] ?? null) === null && Auth::isSuperAdmin()): ?>
     <p id="pageSub" style="font-size:13px;color:var(--muted);margin-top:4px">Usuários do sistema (SuperAdmin e Admin sem cliente vinculado).</p>
     <?php else: ?>
@@ -107,7 +107,7 @@ function uAvatar(string $nome, array $paleta): array {
     <button onclick="fecharModalUsuario()" style="position:absolute;top:16px;right:16px;border:none;background:none;font-size:22px;color:var(--muted);cursor:pointer;line-height:1;display:flex;align-items:center">
       <i class="ph ph-x"></i>
     </button>
-    <h2 style="font-family:'Playfair Display',serif;font-size:20px;font-weight:800;margin-bottom:20px">Adicionar Usuário</h2>
+    <h2 style="font-family:'Inter',sans-serif;font-size:20px;font-weight:800;margin-bottom:20px;letter-spacing:0">Adicionar Usuário</h2>
 
     <form method="POST" action="<?= BASE_PATH ?>/admin/usuarios/novo">
       <input type="hidden" name="_token" value="<?= $csrf ?>">
@@ -164,7 +164,7 @@ function uAvatar(string $nome, array $paleta): array {
     <button onclick="fecharModalSenha()" style="position:absolute;top:16px;right:16px;border:none;background:none;font-size:22px;color:var(--muted);cursor:pointer;line-height:1;display:flex;align-items:center">
       <i class="ph ph-x"></i>
     </button>
-    <h2 style="font-family:'Playfair Display',serif;font-size:20px;font-weight:800;margin-bottom:4px">Redefinir Senha</h2>
+    <h2 style="font-family:'Inter',sans-serif;font-size:20px;font-weight:800;margin-bottom:4px;letter-spacing:0">Redefinir Senha</h2>
     <p id="modalSenhaNome" style="font-size:13px;color:var(--muted);margin-bottom:20px"></p>
 
     <form method="POST" action="<?= BASE_PATH ?>/admin/usuarios/senha">

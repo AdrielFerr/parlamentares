@@ -219,9 +219,12 @@ function buildCardGrid(list) {
   let h='<div class="grid">';
   list.forEach(p=>{
     const n=esc(p.nome_parlamentar||p.nome_completo||"?"),s=imgSrc(p),at=!!p.ativo,ini=initials(p.nome_parlamentar||p.nome_completo);
+    const partido=esc(p.partido?.sigla||p.partido_sigla||''),uf=esc(p.uf||'');
+    const pc=partyColor(partido);
     h+=`<div class="card" onclick="openProfile(${p.id})" onmouseenter="prefetchCard(${p.id})">`;
     h+=s?`<img class="card-img" src="${esc(s)}" alt="${n}" loading="lazy" onerror="this.outerHTML='<div class=card-avatar>${ini}</div>'">`:`<div class="card-avatar">${ini}</div>`;
     h+=`<div class="card-body"><div class="card-name">${n}<span class="dot ${at?'on':'off'}"></span></div>`;
+    if(partido||uf)h+=`<div class="card-meta">${partido?`<span class="card-party" style="background:${pc[0]};color:${pc[1]}">${partido}</span>`:''}${uf?`<span class="card-uf">${uf}</span>`:''}</div>`;
     if(p.nome_completo&&p.nome_completo!==p.nome_parlamentar)h+=`<div class="card-fullname">${esc(p.nome_completo)}</div>`;
     h+='</div></div>';
   });
@@ -334,7 +337,17 @@ function getFilteredList() {
   }
   if(onlyTitular)list=list.filter(p=>!!p._tit);
   if(onlyActive)list=list.filter(p=>!!p.ativo);
-  if(search.trim()){const s=search.toLowerCase();list=list.filter(p=>(p.nome_parlamentar||"").toLowerCase().includes(s)||(p.nome_completo||"").toLowerCase().includes(s))}
+  if(search.trim()){
+    const s=search.toLowerCase();
+    list=list.filter(p=>{
+      const partido=(p.partido?.sigla||p.partido_sigla||'').toLowerCase();
+      const uf=(p.uf||'').toLowerCase();
+      return (p.nome_parlamentar||"").toLowerCase().includes(s)
+        || (p.nome_completo||"").toLowerCase().includes(s)
+        || partido.includes(s)
+        || uf.includes(s);
+    });
+  }
   list.sort((a,b)=>(a.nome_parlamentar||"").localeCompare(b.nome_parlamentar||""));
   return list;
 }
@@ -647,6 +660,7 @@ function applyDashFilters() {
 const barValuePlugin={
   id:'barValue',
   afterDatasetsDraw(chart){
+    if(chart.options?.plugins?.barValue === false) return;
     const {ctx}=chart;
     ctx.save();
     chart.data.datasets.forEach((_ds,i)=>{
@@ -1238,7 +1252,7 @@ async function openMateria(materiaId) {
     // Tipo em destaque
     if(tipoSigla){
       h+=`<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)">`;
-      h+=`<span style="font-size:28px;font-weight:800;color:var(--accent);font-family:'Playfair Display',serif;line-height:1">${esc(tipoSigla)}</span>`;
+      h+=`<span style="font-size:28px;font-weight:800;color:var(--accent);font-family:'Inter',sans-serif;line-height:1">${esc(tipoSigla)}</span>`;
       if(tipoDescr) h+=`<span style="font-size:13px;color:var(--muted);line-height:1.4">${esc(tipoDescr)}</span>`;
       h+=`</div>`;
     }
@@ -2136,6 +2150,13 @@ const MAX_AGENTE_TURNS = 20;
 function _histUrl(parlId) {
   return (APP_CONFIG.basePath||'')+'/api/agente-historico?contexto=parlamentar&contexto_id='+encodeURIComponent(parlId);
 }
+async function fetchAgenteContextoParlamentar(parlId) {
+  const qs = new URLSearchParams({source: APP_CONFIG.source || '', sapl_id: parlId});
+  const res = await fetch((APP_CONFIG.basePath||'') + '/api/agente-contexto?' + qs.toString());
+  const data = await res.json();
+  if(!res.ok || data.error) throw new Error(data.error || 'Erro ao carregar contexto do agente');
+  return data;
+}
 function agenteHistorySave() {
   if(!agenteHistoryParlId) return;
   fetch(_histUrl(agenteHistoryParlId), {
@@ -2169,18 +2190,29 @@ async function agenteHistoryLoad(parlId) {
 
 async function renderTabAgente(p) {
   const isCamaraAg = APP_CONFIG.source==='camara_federal';
-  const autorData = await getAutorData(p);
-
-  // Carrega todas as fontes de dados em paralelo
-  const [allMat, allNorm, comissoes, filiacoes, mandatos, frentes, emendas] = await Promise.all([
-    autorData ? getCached(p.id,'all_materias',()=>fetchAllPages(`/materia/autoria/?autor=${autorData.id}&o=-id`)) : Promise.resolve([]),
-    autorData ? getCached(p.id,'normas',()=>fetchAllPages(`/norma/autorianorma/?autor=${autorData.id}`)) : Promise.resolve([]),
-    getCached(p.id,'comissoes_ag',()=>fetchAllPages(`/comissoes/participacao/?parlamentar=${p.id}`)).catch(()=>[]),
-    getCached(p.id,'filiacoes_ag',()=>fetchAllPages(`/parlamentares/filiacao/?parlamentar=${p.id}`)).catch(()=>[]),
-    getCached(p.id,'mandatos_ag', ()=>fetchAllPages(`/parlamentares/mandato/?parlamentar=${p.id}`)).catch(()=>[]),
-    getCached(p.id,'frentes_ag',  ()=>fetchAllPages(`/parlamentares/frenteparlamentar/?parlamentar=${p.id}`)).catch(()=>[]),
-    isCamaraAg ? getCached(p.id,`emendas_${_emendaYear}`,()=>fetchAllPages(`/emendas/parlamentar/?parlamentar=${p.id}&ano=${_emendaYear}`)).catch(()=>[]) : Promise.resolve([]),
-  ]);
+  let allMat = [], allNorm = [], comissoes = [], filiacoes = [], mandatos = [], frentes = [], emendas = [], relatorias = [];
+  try {
+    const ctxData = await getCached(p.id, 'agente_contexto_all', () => fetchAgenteContextoParlamentar(p.id));
+    allMat    = ctxData.materias   || [];
+    allNorm   = ctxData.normas     || [];
+    comissoes = ctxData.comissoes  || [];
+    filiacoes = ctxData.filiacoes  || [];
+    mandatos  = ctxData.mandatos   || [];
+    frentes   = ctxData.frentes    || [];
+    emendas   = ctxData.emendas    || [];
+    relatorias= ctxData.relatorias || [];
+  } catch(e) {
+    const autorData = await getAutorData(p);
+    [allMat, allNorm, comissoes, filiacoes, mandatos, frentes, emendas] = await Promise.all([
+      autorData ? getCached(p.id,'all_materias',()=>fetchAllPages(`/materia/autoria/?autor=${autorData.id}&o=-id`)) : Promise.resolve([]),
+      autorData ? getCached(p.id,'normas',()=>fetchAllPages(`/norma/autorianorma/?autor=${autorData.id}`)) : Promise.resolve([]),
+      getCached(p.id,'comissoes_ag',()=>fetchAllPages(`/comissoes/participacao/?parlamentar=${p.id}`)).catch(()=>[]),
+      getCached(p.id,'filiacoes_ag',()=>fetchAllPages(`/parlamentares/filiacao/?parlamentar=${p.id}`)).catch(()=>[]),
+      getCached(p.id,'mandatos_ag', ()=>fetchAllPages(`/parlamentares/mandato/?parlamentar=${p.id}`)).catch(()=>[]),
+      getCached(p.id,'frentes_ag',  ()=>fetchAllPages(`/parlamentares/frenteparlamentar/?parlamentar=${p.id}`)).catch(()=>[]),
+      isCamaraAg ? getCached(p.id,'emendas_todas',()=>fetchAllPages(`/emendas/parlamentar/?parlamentar=${p.id}`)).catch(()=>[]) : Promise.resolve([]),
+    ]);
+  }
 
   const nomeParlamentar = p.nome_parlamentar||p.nome_completo||'';
   const matLabel  = isCamaraAg ? 'proposições' : 'matérias';
@@ -2238,12 +2270,21 @@ async function renderTabAgente(p) {
     ctx += '\n';
   }
 
+  if(relatorias.length) {
+    ctx += `## Relatorias (${relatorias.length})\n`;
+    relatorias.slice(0,25).forEach(r=>{const t=(r.__str__||'').trim();if(t) ctx+=`  - ${t.slice(0,100)}\n`;});
+    if(relatorias.length>25) ctx+=`  ... e mais ${relatorias.length-25}\n`;
+    ctx += '\n';
+  }
+
   // Emendas (só Câmara Federal)
   if(isCamaraAg && emendas.length) {
     const fmtM = v=>v>0?'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2}):'—';
     const totDot = emendas.reduce((s,e)=>s+(e.valor_dotacao||0),0);
     const totPag = emendas.reduce((s,e)=>s+(e.valor_pago||0),0);
-    ctx += `## Emendas Parlamentares ${_emendaYear} (${emendas.length})\n`;
+    const anosEmendas = [...new Set(emendas.map(e=>e.ano).filter(Boolean))].sort((a,b)=>b-a);
+    ctx += `## Emendas Parlamentares - todos os anos (${emendas.length})\n`;
+    if(anosEmendas.length) ctx += `Anos disponíveis: ${anosEmendas.join(', ')}\n`;
     ctx += `Dotação total: ${fmtM(totDot)} | Valor pago: ${fmtM(totPag)}\n`;
     const porFunc={};
     emendas.forEach(e=>{const f=e.funcao||'Outros';porFunc[f]=(porFunc[f]||0)+(e.valor_dotacao||0);});
@@ -2251,9 +2292,9 @@ async function renderTabAgente(p) {
     ctx += `Distribuição por função:\n`;
     funcs.forEach(([f,v])=>{ctx+=`  - ${f}: ${fmtM(v)}\n`;});
     ctx += '\n';
-    ctx += `Emendas (destino, função, valor dotado):\n`;
+    ctx += `Emendas (ano, destino, função, valor dotado):\n`;
     emendas.slice(0,50).forEach(e=>{
-      ctx+=`  - Nº ${e.numero||'?'} | ${e.funcao||'—'} / ${e.subfuncao||'—'} | Destino: ${e.localidade||'—'} | Dotação: ${fmtM(e.valor_dotacao)} | Pago: ${fmtM(e.valor_pago)}\n`;
+      ctx+=`  - ${e.ano||'—'} | Nº ${e.numero||'?'} | ${e.funcao||'—'} / ${e.subfuncao||'—'} | Destino: ${e.localidade||'—'} | Dotação: ${fmtM(e.valor_dotacao)} | Pago: ${fmtM(e.valor_pago)}\n`;
     });
     if(emendas.length>50) ctx+=`  ... e mais ${emendas.length-50} emendas\n`;
     ctx += '\n';
@@ -2295,8 +2336,9 @@ async function renderTabAgente(p) {
   const ctxSummary = [
     allMat.length ? `<strong>${allMat.length}</strong> ${matLabel}` : '',
     allNorm.length ? `<strong>${allNorm.length}</strong> ${isCamaraAg?'sancionadas':'normas'}` : '',
-    isCamaraAg&&emendas.length ? `<strong>${emendas.length}</strong> emendas ${_emendaYear}` : '',
+    isCamaraAg&&emendas.length ? `<strong>${emendas.length}</strong> emendas` : '',
     comissoes.length ? `<strong>${comissoes.length}</strong> comissões` : '',
+    relatorias.length ? `<strong>${relatorias.length}</strong> relatorias` : '',
     frentes.length  ? `<strong>${frentes.length}</strong> frentes` : '',
   ].filter(Boolean).join(' · ');
 
@@ -2313,7 +2355,7 @@ async function renderTabAgente(p) {
   const welcomeExtras = [
     allMat.length ? `${isCamaraAg?'proposições':'matérias'} (quantidade, tipos, anos, temas)` : '',
     allNorm.length ? (isCamaraAg?'proposições sancionadas (leis aprovadas)':'normas jurídicas') : '',
-    isCamaraAg&&emendas.length ? `emendas orçamentárias ${_emendaYear} (valores, destinos, funções)` : '',
+    isCamaraAg&&emendas.length ? 'emendas orçamentárias de todos os anos (valores, destinos, funções)' : '',
     comissoes.length ? 'comissões e participação' : '',
     frentes.length  ? 'frentes parlamentares' : '',
   ].filter(Boolean);
@@ -2444,6 +2486,321 @@ ${agenteContext||'Dados não disponíveis.'}`;
 }
 
 // ══════════════════════════════════════════════════════
+// GLOBAL DASHBOARD
+// ══════════════════════════════════════════════════════
+let globalDashFilters = {ano:'', partido:'', uf:'', parlamentar:'', ativo:'1'};
+let globalDashData = null;
+
+function fmtCompact(v) {
+  return Number(v||0).toLocaleString('pt-BR');
+}
+function fmtMoney(v) {
+  const n = Number(v||0);
+  if(n >= 1e9) return 'R$ ' + (n/1e9).toLocaleString('pt-BR',{maximumFractionDigits:1}) + ' bi';
+  if(n >= 1e6) return 'R$ ' + (n/1e6).toLocaleString('pt-BR',{maximumFractionDigits:1}) + ' mi';
+  return n > 0 ? 'R$ ' + n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—';
+}
+function fmtChartValue(v, money=false) {
+  const n = Number(v || 0);
+  if(money) return fmtMoney(n);
+  if(Math.abs(n) >= 1e9) return Math.round(n / 1e9).toLocaleString('pt-BR') + ' bi';
+  if(Math.abs(n) >= 1e6) return Math.round(n / 1e6).toLocaleString('pt-BR') + ' mi';
+  return fmtCompact(n);
+}
+
+async function fetchGlobalDashboard() {
+  const qs = new URLSearchParams({source: APP_CONFIG.source || 'cmjp'});
+  Object.entries(globalDashFilters).forEach(([k,v]) => { if(v !== '' && v !== null && v !== undefined) qs.set(k, v); });
+  const res = await fetch((APP_CONFIG.basePath||'') + '/api/dashboard-global?' + qs.toString());
+  if(!res.ok) throw new Error('Falha ao carregar dashboard global');
+  return await res.json();
+}
+
+async function openGlobalDashboard() {
+  history.replaceState(null, '', '#dashboard-global');
+  updateParlamentaresNavState();
+  currentProfile = null;
+  tablePages = {};
+  dashboardAllMaterias = null;
+  dashboardAllNormas = null;
+  dashboardAllEmendas = null;
+  dashboardChartInstances = {};
+  const main = document.getElementById('mainContent');
+  main.innerHTML = `<div class="tab-loader" style="min-height:260px"><div class="spinner"></div><span style="color:var(--muted);font-size:13px">Carregando dashboard global...</span></div>`;
+  try {
+    globalDashData = await fetchGlobalDashboard();
+    renderGlobalDashboard();
+    setTimeout(renderGlobalDashboardCharts, 0);
+  } catch(e) {
+    main.innerHTML = `<div class="empty-tab"><i class="ph ph-warning-circle" style="font-size:32px;color:var(--red);display:block;margin-bottom:10px"></i><p style="font-weight:700;color:var(--red);margin-bottom:6px">Erro ao carregar dashboard global</p><p style="font-size:12px;color:var(--muted)">${esc(e.message)}</p></div>`;
+  }
+}
+
+function updateParlamentaresNavState() {
+  const isGlobal = location.hash === '#dashboard-global';
+  document.querySelectorAll('[data-nav="producao-legislativa"]').forEach(el => el.classList.toggle('active', isGlobal));
+  document.querySelectorAll('[data-nav="parlamentares"]').forEach(el => el.classList.toggle('active', !isGlobal));
+}
+
+function renderGlobalDashboard() {
+  const data = globalDashData || {};
+  const k = data.kpis || {};
+  const f = data.filters || {};
+  const selected = f.selected || globalDashFilters;
+  const periodo = f.periodo || {inicio:2023, fim:2026};
+  const periodoLabel = `${periodo.inicio || 2023}-${periodo.fim || 2026}`;
+  const isCamaraDash = APP_CONFIG.source === 'camara_federal';
+  const matLabel = isCamaraDash ? 'Proposições' : 'Matérias';
+  const normLabel = isCamaraDash ? 'Sancionadas' : 'Normas';
+
+  const kpi = (label, value, cls='', money=false) =>
+    `<div class="global-kpi ${cls}"><div class="global-kpi-label">${esc(label)}</div><div class="global-kpi-value ${money?'global-kpi-money':''}">${money ? fmtMoney(value) : fmtCompact(value)}</div></div>`;
+  const chartCard = (id, title, height=280, extra='') => {
+    const scroll = extra.includes('scroll');
+    const items = extra.match(/items-(\d+)/)?.[1] || 10;
+    const frameStyle = scroll ? `--chart-items:${items}` : `height:${height}px`;
+    const frame = `<div class="global-chart-frame" style="${frameStyle}"><canvas id="${id}"></canvas></div>`;
+    return `<div class="global-chart-card ${extra}"><h3 class="global-chart-title">${esc(title)}</h3>${scroll ? `<div class="global-chart-scroll">${frame}</div>` : frame}</div>`;
+  };
+  const renderParlFilter = () => {
+    const parls = f.parlamentares || [];
+    const selectedId = String(selected.parlamentar || '');
+    const current = parls.find(p => String(p.id) === selectedId);
+    let html = `<div class="global-combo" id="globalParlCombo" onclick="event.stopPropagation()">
+      <button type="button" class="global-combo-btn" onclick="toggleGlobalParlFilter(event)">
+        <span class="global-combo-label">${esc(current ? current.nome : 'Todos os parlamentares')}</span>
+        <i class="ph ph-caret-down global-combo-caret"></i>
+      </button>
+      <div class="global-combo-menu">
+        <div class="global-combo-search"><input type="text" id="globalParlSearch" placeholder="Pesquisar parlamentar..." oninput="filterGlobalParlOptions(this.value)"></div>
+        <div class="global-combo-list" id="globalParlList">`;
+    html += `<button type="button" class="global-combo-item ${selectedId===''?'active':''}" data-search="todos parlamentares" onclick="selectGlobalDashParlamentar('')"><span class="global-combo-item-main">Todos os parlamentares</span></button>`;
+    parls.forEach(p => {
+      const meta = [p.partido, p.uf].filter(Boolean).join('/');
+      const search = `${p.nome || ''} ${p.partido || ''} ${p.uf || ''}`.toLowerCase();
+      html += `<button type="button" class="global-combo-item ${String(p.id)===selectedId?'active':''}" data-search="${esc(search)}" onclick="selectGlobalDashParlamentar('${p.id}')">
+        <span class="global-combo-item-main">${esc(p.nome || '')}</span>
+        ${meta ? `<span class="global-combo-item-meta">${esc(meta)}</span>` : ''}
+      </button>`;
+    });
+    html += '</div></div></div>';
+    return html;
+  };
+
+  let h = '<div class="global-dashboard">';
+
+  h += '<div class="global-filter-bar">';
+  h += `<select class="dash-filter-select" onchange="changeGlobalDashFilter('ano',this.value)"><option value="">${esc(periodoLabel)}</option>`;
+  (f.anos||[]).forEach(y => { h += `<option value="${y}"${String(selected.ano||'')===String(y)?' selected':''}>${y}</option>`; });
+  h += '</select>';
+  h += `<select class="dash-filter-select" onchange="changeGlobalDashFilter('partido',this.value)"><option value="">Todos os partidos</option>`;
+  (f.partidos||[]).forEach(p => { h += `<option value="${esc(p)}"${selected.partido===p?' selected':''}>${esc(p)}</option>`; });
+  h += '</select>';
+  h += `<select class="dash-filter-select" onchange="changeGlobalDashFilter('uf',this.value)"><option value="">Todas as UFs</option>`;
+  (f.ufs||[]).forEach(uf => { h += `<option value="${esc(uf)}"${selected.uf===uf?' selected':''}>${esc(uf)}</option>`; });
+  h += '</select>';
+  h += renderParlFilter();
+  h += `<select class="dash-filter-select" onchange="changeGlobalDashFilter('ativo',this.value)">
+    <option value="1"${selected.ativo==='1'?' selected':''}>Apenas ativos</option>
+    <option value=""${selected.ativo===''?' selected':''}>Todos</option>
+    <option value="0"${selected.ativo==='0'?' selected':''}>Apenas inativos</option>
+  </select>`;
+  h += `<button class="global-clear-btn" onclick="clearGlobalDashFilters()">Limpar filtros</button>`;
+  h += '</div>';
+
+  h += '<div class="global-kpi-grid">';
+  h += kpi('Parlamentares', k.parlamentares, 'primary');
+  h += kpi(matLabel, k.materias, 'primary');
+  h += kpi(normLabel, k.normas);
+  h += kpi('Comissões', k.comissoes);
+  h += kpi('Frentes', k.frentes);
+  h += kpi('Emendas', k.emendas);
+  h += kpi('Valor empenhado', k.empenhado, 'money', true);
+  h += kpi('Valor liquidado', k.liquidado, 'money', true);
+  h += kpi('Valor pago', k.pago, 'money', true);
+  h += '</div>';
+
+  h += '<section class="global-section"><h2 class="global-section-title">Produção por ano</h2><div class="global-chart-grid">';
+  h += chartCard('chartGlobalMatAno', `${matLabel} por ano`);
+  h += chartCard('chartGlobalNormAno', `${normLabel} por ano`);
+  h += '</div></section>';
+
+  h += '<section class="global-section"><h2 class="global-section-title">Produção por tipo</h2><div class="global-chart-grid">';
+  h += chartCard('chartGlobalMatTipo', `${matLabel} por tipo`, 280, `scroll items-${Math.max(10, (data.charts?.materias_por_tipo || []).length)}`);
+  h += chartCard('chartGlobalNormTipo', `${normLabel} por tipo`);
+  h += '</div></section>';
+
+  h += '<section class="global-section"><h2 class="global-section-title">Distribuição parlamentar</h2><div class="global-chart-grid">';
+  h += chartCard('chartGlobalPartido', `${matLabel} por partido`, 280, `scroll items-${Math.max(10, (data.charts?.producao_por_partido || []).length)}`);
+  h += chartCard('chartGlobalUf', `${matLabel} por UF`, 280, `scroll items-${Math.max(10, (data.charts?.producao_por_uf || []).length)}`);
+  h += '</div></section>';
+
+  if(isCamaraDash || (k.emendas||0) > 0) {
+    h += '<section class="global-section"><h2 class="global-section-title">Emendas</h2><div class="global-chart-grid">';
+    h += chartCard('chartGlobalEmFuncao', 'Emendas por função', 280, `scroll items-${Math.max(10, (data.charts?.emendas_por_funcao || []).length)}`);
+    h += chartCard('chartGlobalEmLocal', 'Top localidades', 280, `scroll items-${Math.max(10, (data.charts?.emendas_por_localidade || []).length)}`);
+    h += '</div></section>';
+  }
+
+  h += '<section class="global-section"><h2 class="global-section-title">Rankings</h2><div class="global-rank-grid">';
+  h += renderGlobalRankBox('Maior produção legislativa', data.rankings?.producao || [], 'materias', matLabel);
+  h += renderGlobalRankBox(`Mais ${normLabel.toLowerCase()}`, data.rankings?.sancionadas || [], 'normas', normLabel);
+  h += renderGlobalRankBox('Mais emendas', data.rankings?.emendas_quantidade || [], 'emendas', 'Emendas');
+  h += renderGlobalRankBox('Maior valor empenhado', data.rankings?.emendas_valor || [], 'empenhado', 'Empenhado', true);
+  h += '</div></section></div>';
+
+  document.getElementById('mainContent').innerHTML = h;
+}
+
+function renderGlobalRankBox(title, rows, field, label, money=false) {
+  let h = `<div class="global-rank-card"><div class="global-table-title"><h3 class="section-title">${esc(title)}</h3></div>`;
+  if(!rows.length) return h + '<div class="empty-tab">Nenhum dado para os filtros selecionados.</div></div>';
+  h += '<div class="table-wrap-inner global-rank-scroll"><table class="global-rank-table"><thead><tr><th>#</th><th>Parlamentar</th><th>UF/Partido</th><th style="text-align:right">'+esc(label)+'</th><th></th></tr></thead><tbody>';
+  rows.forEach((r,i) => {
+    const val = money ? fmtMoney(r[field]) : fmtCompact(r[field]);
+    const party = [r.partido, r.uf].filter(Boolean).join('/');
+    h += `<tr><td>${i+1}</td><td><span class="global-rank-name" title="${esc(r.nome)}">${esc(r.nome)}</span></td><td><span class="global-rank-party">${esc(party || '—')}</span></td><td class="global-rank-value">${esc(val)}</td><td style="text-align:right"><button class="btn-ver" onclick="openProfile(${r.id})">Ver</button></td></tr>`;
+  });
+  return h + '</tbody></table></div></div>';
+}
+
+async function changeGlobalDashFilter(key, value) {
+  globalDashFilters[key] = value;
+  if(key === 'partido' || key === 'uf') globalDashFilters.parlamentar = '';
+  await refreshGlobalDashboard();
+}
+
+function clearGlobalDashFilters() {
+  globalDashFilters = {ano:'', partido:'', uf:'', parlamentar:'', ativo:'1'};
+  refreshGlobalDashboard();
+}
+
+function toggleGlobalParlFilter(e) {
+  if(e) e.stopPropagation();
+  const combo = document.getElementById('globalParlCombo');
+  if(!combo) return;
+  combo.classList.toggle('open');
+  if(combo.classList.contains('open')) {
+    setTimeout(() => document.getElementById('globalParlSearch')?.focus(), 0);
+  }
+}
+
+function filterGlobalParlOptions(term) {
+  const list = document.getElementById('globalParlList');
+  if(!list) return;
+  const q = String(term || '').trim().toLowerCase();
+  let visible = 0;
+  list.querySelectorAll('.global-combo-item').forEach(btn => {
+    const ok = !q || (btn.getAttribute('data-search') || '').includes(q);
+    btn.style.display = ok ? 'flex' : 'none';
+    if(ok) visible++;
+  });
+  let empty = list.querySelector('.global-combo-empty');
+  if(!visible) {
+    if(!empty) {
+      empty = document.createElement('div');
+      empty.className = 'global-combo-empty';
+      empty.textContent = 'Nenhum parlamentar encontrado';
+      list.appendChild(empty);
+    }
+  } else if(empty) {
+    empty.remove();
+  }
+}
+
+function selectGlobalDashParlamentar(id) {
+  globalDashFilters.parlamentar = id || '';
+  document.getElementById('globalParlCombo')?.classList.remove('open');
+  refreshGlobalDashboard();
+}
+
+document.addEventListener('click', function(e) {
+  const combo = document.getElementById('globalParlCombo');
+  if(combo && !combo.contains(e.target)) combo.classList.remove('open');
+});
+
+async function refreshGlobalDashboard() {
+  const main = document.getElementById('mainContent');
+  main.innerHTML = `<div class="tab-loader" style="min-height:260px"><div class="spinner"></div><span style="color:var(--muted);font-size:13px">Atualizando dashboard...</span></div>`;
+  try {
+    globalDashData = await fetchGlobalDashboard();
+    renderGlobalDashboard();
+    setTimeout(renderGlobalDashboardCharts, 0);
+  } catch(e) {
+    main.innerHTML = `<div class="empty-tab"><i class="ph ph-warning-circle" style="font-size:32px;color:var(--red);display:block;margin-bottom:10px"></i><p style="font-weight:700;color:var(--red);margin-bottom:6px">Erro ao atualizar dashboard</p><p style="font-size:12px;color:var(--muted)">${esc(e.message)}</p></div>`;
+  }
+}
+
+function renderGlobalDashboardCharts() {
+  if(typeof Chart === 'undefined' || !globalDashData) return;
+  Object.values(dashboardChartInstances).forEach(c=>{try{c.destroy()}catch(e){}});
+  dashboardChartInstances = {};
+  const charts = globalDashData.charts || {};
+  const COLORS=['#1A6B4F','#C9A84C','#3B82F6','#EC4899','#8B5CF6','#F59E0B','#10B981','#EF4444','#0EA5E9','#A855F7','#64748B','#14B8A6'];
+  const font={family:"'Inter',sans-serif",size:11};
+  const moneyTick = v => Number(v)>=1e9?'R$'+(Number(v)/1e9).toFixed(1)+'B':Number(v)>=1e6?'R$'+(Number(v)/1e6).toFixed(1)+'M':Number(v)>=1e3?'R$'+(Number(v)/1e3).toFixed(0)+'K':'R$'+Number(v).toFixed(0);
+
+  function mount(id, type, series, opts={}) {
+    const canvas = document.getElementById(id);
+    if(!canvas) return;
+    const wrap = canvas.parentElement;
+    if(!series || !series.length) {
+      canvas.style.display = 'none';
+      if(wrap && !wrap.querySelector('.chart-empty-msg')) {
+        const d = document.createElement('div');
+        d.className = 'chart-empty-msg';
+        d.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:12px;text-align:center;padding:8px';
+        d.textContent = 'Nenhum dado para os filtros selecionados';
+        wrap.appendChild(d);
+      }
+      return;
+    }
+    const maxLabel = opts.maxLabel || (opts.horizontal ? 36 : 18);
+    const labels = series.map(x => String(x.label || '').length > maxLabel ? String(x.label).slice(0,maxLabel-1)+'…' : String(x.label || ''));
+    const values = series.map(x => opts.money ? Number(x.empenhado||0) : Number(x.total||0));
+    const categoryTicks = {font, autoSkip:true, maxTicksLimit:opts.maxTicks||10, callback:function(value){ return this.getLabelForValue(value); }};
+    const valueTicks = opts.money ? {font, callback:moneyTick} : {font};
+    const scales = opts.horizontal
+      ? {x:{beginAtZero:true,ticks:{...valueTicks,display:false},grid:{display:false},border:{display:false}},y:{ticks:{...categoryTicks,autoSkip:false},grid:{display:false}}}
+      : {y:{beginAtZero:true,ticks:valueTicks,grid:{color:'rgba(0,0,0,.05)'}},x:{ticks:{...categoryTicks,maxRotation:0,minRotation:0},grid:{display:false}}};
+    const valueLabelPlugin = {
+      id: 'valueLabel_' + id,
+      afterDatasetsDraw(chart) {
+        if(type !== 'bar' || (!opts.horizontal && !opts.showValues)) return;
+        const {ctx} = chart;
+        ctx.save();
+        ctx.font = "700 11px Inter, sans-serif";
+        ctx.fillStyle = '#374151';
+        ctx.textAlign = opts.horizontal ? 'left' : 'center';
+        ctx.textBaseline = opts.horizontal ? 'middle' : 'bottom';
+        chart.getDatasetMeta(0).data.forEach((bar, index) => {
+          const value = values[index];
+          if(!value) return;
+          const label = fmtChartValue(value, opts.money);
+          ctx.fillText(label, opts.horizontal ? bar.x + 6 : bar.x, opts.horizontal ? bar.y : bar.y - 6);
+        });
+        ctx.restore();
+      }
+    };
+    dashboardChartInstances[id] = new Chart(canvas, {
+      type,
+      data:{labels,datasets:[{label:opts.label||'Total',data:values,backgroundColor:type==='line'?'#1A6B4F':labels.map((_,i)=>COLORS[i%COLORS.length]),borderColor:'#1A6B4F',borderRadius:4,tension:.25,fill:false}]},
+      options:{indexAxis:opts.horizontal?'y':'x',responsive:true,maintainAspectRatio:false,layout:{padding:opts.horizontal?{right:64}:{top:opts.showValues?18:0}},plugins:{legend:{display:false},barValue:false,tooltip:{callbacks:{label:ctx=>' '+(opts.money?fmtMoney(ctx.parsed[opts.horizontal?'x':'y']):fmtChartValue(ctx.parsed[opts.horizontal?'x':'y']))}}},scales},
+      plugins:[valueLabelPlugin]
+    });
+  }
+
+  mount('chartGlobalMatAno', 'bar', charts.materias_por_ano, {label:'Produção', maxTicks:4, showValues:true});
+  mount('chartGlobalMatTipo', 'bar', charts.materias_por_tipo, {label:'Tipos', horizontal:true, maxLabel:34});
+  mount('chartGlobalPartido', 'bar', charts.producao_por_partido, {label:'Partidos', horizontal:true, maxLabel:34});
+  mount('chartGlobalUf', 'bar', charts.producao_por_uf, {label:'UFs', horizontal:true, maxLabel:18});
+  mount('chartGlobalNormAno', 'bar', charts.normas_por_ano, {label:'Sancionadas', maxTicks:4, showValues:true});
+  mount('chartGlobalNormTipo', 'bar', charts.normas_por_tipo, {label:'Tipos', horizontal:true, maxLabel:34});
+  mount('chartGlobalEmFuncao', 'bar', charts.emendas_por_funcao, {label:'Empenhado', money:true, horizontal:true, maxLabel:34});
+  mount('chartGlobalEmLocal', 'bar', charts.emendas_por_localidade, {label:'Empenhado', money:true, horizontal:true, maxLabel:36});
+}
+
+// ══════════════════════════════════════════════════════
 // Events
 // ══════════════════════════════════════════════════════
 function onChangeLeg(v){selectedLeg=v;loadMandatos().then(()=>renderList())}
@@ -2457,6 +2814,7 @@ async function openProfile(id) {
   history.replaceState(null,'','#perfil-'+id);
   currentProfile=p;activeTab='inicio';tablePages={};
   dashboardAllMaterias=null;dashboardAllNormas=null;dashboardChartInstances={};
+  globalDashData=null;
   agenteContext=null;agenteBusy=false;agenteHistory=[];agenteHistoryParlId=null;
   const main=document.getElementById("mainContent");
   main.innerHTML=await renderProfileShell(p);
@@ -2488,12 +2846,31 @@ function restoreHashProfile() {
   return false;
 }
 
+function restoreHashView() {
+  if(location.hash === '#dashboard-global') { openGlobalDashboard(); return true; }
+  updateParlamentaresNavState();
+  return restoreHashProfile();
+}
+
 function backToList(){
   history.replaceState(null,'',location.pathname+location.search);
+  updateParlamentaresNavState();
   currentProfile=null;tabDataCache={};
   dashboardAllMaterias=null;dashboardAllNormas=null;dashboardChartInstances={};
+  globalDashData=null;
   renderList();window.scrollTo({top:0,behavior:"smooth"});
 }
+
+window.addEventListener('hashchange', () => {
+  if(location.hash === '#dashboard-global') {
+    openGlobalDashboard();
+  } else if(!location.hash) {
+    updateParlamentaresNavState();
+    if(!currentProfile) renderList();
+  } else {
+    restoreHashView();
+  }
+});
 
 async function loadMandatos(){
   if(!selectedLeg){mandatosByLeg=[];return}
@@ -2592,16 +2969,16 @@ async function init(){
       cached.partidos.forEach(p=>{allPartidos[p.id]=p.nome;allPartidosSigla[p.id]=p.sigla});
       selectedLeg = allLegislaturas[0] ? String(allLegislaturas[0].id) : "";
       mandatosByLeg = cached.mandatos || [];
-      if(!restoreHashProfile()) renderList();
+      if(!restoreHashView()) renderList();
       return;
     }
 
     // 2. Cache do servidor (PHP SaplCache via /api/bulk)
     lt.textContent="Carregando parlamentares...";
     const bulk = await fetchBulk();
-    if(bulk.fromCache && bulk.parlamentares?.length && bulk.legislaturas?.length) {
+    if(bulk.fromCache && bulk.parlamentares?.length) {
       lt.textContent="Carregando parlamentares...";
-      allLegislaturas = bulk.legislaturas.sort((a,b)=>(b.numero||0)-(a.numero||0));
+      allLegislaturas = (bulk.legislaturas||[]).sort((a,b)=>(b.numero||0)-(a.numero||0));
       allParlamentares = bulk.parlamentares;
       bulk.partidos?.forEach(p=>{allPartidos[p.id]=p.nome;allPartidosSigla[p.id]=p.sigla});
       selectedLeg = allLegislaturas[0] ? String(allLegislaturas[0].id) : "";
@@ -2613,7 +2990,7 @@ async function init(){
         mandatos: mandatosByLeg,
         selectedLeg,
       });
-      if(!restoreHashProfile()) renderList();
+      if(!restoreHashView()) renderList();
       return;
     }
 
@@ -2657,7 +3034,7 @@ async function init(){
       selectedLeg,
     });
 
-    if(!restoreHashProfile()) renderList();
+    if(!restoreHashView()) renderList();
   }catch(e){
     console.error(e);
     document.getElementById("mainContent").innerHTML=`<div class="empty">
@@ -2746,7 +3123,7 @@ function _openExtraMateria(d, aba) {
   // Tipo em destaque
   if (d.tipo) {
     h += `<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)">`;
-    h += `<span style="font-size:28px;font-weight:800;color:var(--accent);font-family:'Playfair Display',serif;line-height:1">${esc(d.tipo)}</span>`;
+    h += `<span style="font-size:28px;font-weight:800;color:var(--accent);font-family:'Inter',sans-serif;line-height:1">${esc(d.tipo)}</span>`;
     h += `</div>`;
   }
 

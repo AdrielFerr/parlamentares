@@ -12,7 +12,7 @@ $corAv    = $paleta[abs(crc32($userNome)) % count($paleta)];
 ?>
 
 <div style="margin-bottom:24px">
-  <h2 id="pageTitle" style="font-family:'Playfair Display',serif;font-size:22px;font-weight:800;line-height:1.1">Meu Perfil</h2>
+  <h2 id="pageTitle" style="font-family:'Inter',sans-serif;font-size:22px;font-weight:800;line-height:1.1;letter-spacing:0">Meu Perfil</h2>
   <p id="pageSub" style="font-size:13px;color:var(--muted);margin-top:4px">Atualize suas informações pessoais e senha</p>
 </div>
 

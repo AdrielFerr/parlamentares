@@ -33,6 +33,12 @@ define('CRYPTO_KEY', _env('CRYPTO_KEY', 'a1b2c3d4e5f6789012345678901234567890abc
 define('APP_NAME',  _env('APP_NAME',  'KeekConecta'));
 define('APP_URL',   _env('APP_URL',   'http://localhost'));
 define('BASE_PATH', _env('BASE_PATH', ''));
+define('ASSET_BASE_PATH', _env('ASSET_BASE_PATH', ''));
+
+function asset_url(string $path): string {
+    if ($path === '' || preg_match('#^https?://#i', $path)) return $path;
+    return rtrim(ASSET_BASE_PATH, '/') . '/' . ltrim($path, '/');
+}
 
 // Fontes legislativas
 define('SOURCES', [

@@ -105,6 +105,22 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS sentinela_arquivos (
     FOREIGN KEY (projeto_id) REFERENCES projetos(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
+$pdo->exec("CREATE TABLE IF NOT EXISTS projeto_admins (
+    projeto_id INT UNSIGNED NOT NULL,
+    usuario_id INT UNSIGNED NOT NULL,
+    PRIMARY KEY (projeto_id, usuario_id),
+    FOREIGN KEY (projeto_id) REFERENCES projetos(id) ON DELETE CASCADE,
+    FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+$pdo->exec("CREATE TABLE IF NOT EXISTS configuracoes_sistema (
+    id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    cliente_id INT UNSIGNED NULL,
+    chave      VARCHAR(100) NOT NULL,
+    valor      TEXT,
+    UNIQUE KEY uq_cliente_chave (cliente_id, chave)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
 $pdo->exec("CREATE TABLE IF NOT EXISTS parlamentares_cache (
     id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     source_key    VARCHAR(50)  NOT NULL,
@@ -195,6 +211,7 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS fonte_sincs (
     status       ENUM('pendente','executando','ok','erro') NOT NULL DEFAULT 'pendente',
     iniciado_em  DATETIME NULL,
     concluido_em DATETIME NULL,
+    detalhes_em  DATETIME NULL,
     total_parl   INT UNSIGNED NOT NULL DEFAULT 0,
     detalhes     TEXT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
@@ -210,6 +227,7 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS parl_parlamentares (
     fotografia_url   VARCHAR(500) NULL,
     email            VARCHAR(200) NULL,
     ativo            TINYINT(1)   NOT NULL DEFAULT 1,
+    titular          TINYINT(1)   NOT NULL DEFAULT 1,
     sincronizado_em  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uq (source_key, sapl_id),
     INDEX idx_source (source_key),
@@ -243,6 +261,8 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS parl_mandatos (
     parlamentar_id  INT UNSIGNED NOT NULL,
     legislatura_id  INT UNSIGNED NOT NULL,
     titular         TINYINT(1)   NOT NULL DEFAULT 1,
+    votos_recebidos VARCHAR(50)  NULL,
+    coligacao       VARCHAR(500) NULL,
     sincronizado_em DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uq (source_key, parlamentar_id, legislatura_id),
     INDEX idx_leg (source_key, legislatura_id)
@@ -269,6 +289,7 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS parl_comissoes (
     source_key    VARCHAR(50)  NOT NULL,
     sapl_id       INT UNSIGNED NOT NULL,
     comissao_str  VARCHAR(500) NOT NULL DEFAULT '',
+    comissao_id   INT UNSIGNED NULL,
     data_inicio   DATE NULL,
     data_fim      DATE NULL,
     titular       TINYINT(1)   NOT NULL DEFAULT 0,
@@ -459,6 +480,12 @@ echo "[migrate] Tabelas parl_materias_autores e parl_materias_temas criadas.\n";
 
 // Adiciona colunas url e regime à tramitação (migrations)
 $migracoes2 = [
+    // Sync semanal — compatibilidade com bancos já existentes
+    "ALTER TABLE fonte_sincs ADD COLUMN IF NOT EXISTS detalhes_em DATETIME NULL AFTER concluido_em",
+    "ALTER TABLE parl_parlamentares ADD COLUMN IF NOT EXISTS titular TINYINT(1) NOT NULL DEFAULT 1 AFTER ativo",
+    "ALTER TABLE parl_mandatos ADD COLUMN IF NOT EXISTS votos_recebidos VARCHAR(50) NULL AFTER titular",
+    "ALTER TABLE parl_mandatos ADD COLUMN IF NOT EXISTS coligacao VARCHAR(500) NULL AFTER votos_recebidos",
+    "ALTER TABLE parl_comissoes ADD COLUMN IF NOT EXISTS comissao_id INT UNSIGNED NULL AFTER comissao_str",
     "ALTER TABLE parl_materias_tramitacao ADD COLUMN IF NOT EXISTS url    VARCHAR(600) NULL AFTER texto",
     "ALTER TABLE parl_materias_tramitacao ADD COLUMN IF NOT EXISTS regime VARCHAR(200) NOT NULL DEFAULT '' AFTER destino_str",
     // Emendas — enriquecimento com órgão, ação, programa e valor liquidado

@@ -21,6 +21,8 @@ if ($_projetoId) {
 }
 $_cssVars = Configuracao::getCssVars($_clienteIdForBranding);
 $_logoUrl = Configuracao::logoUrl($_clienteIdForBranding);
+if (!$_logoUrl) $_logoUrl = '/public/assets/keek-verde.png';
+$_requestPath = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?: '';
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -29,7 +31,7 @@ $_logoUrl = Configuracao::logoUrl($_clienteIdForBranding);
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title><?= $projetoNome ? htmlspecialchars($projetoNome) . ' — ' : '' ?><?= APP_NAME ?></title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=DM+Sans:wght@400;500;700&family=Playfair+Display:wght@800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/@phosphor-icons/web@2.1.1"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
@@ -39,7 +41,7 @@ button{font-family:inherit;cursor:pointer}
 
 :root{
   --bg:#f6f6f6;
-  --card:#fff;
+  --card:rgba(255,255,255,.94);
   --accent:#16a34a;
   --accent-light:#f0fdf4;
   --accent-dark:#15803d;
@@ -47,6 +49,7 @@ button{font-family:inherit;cursor:pointer}
   --muted:#6b7280;
   --border:#e5e7eb;
   --sidebar-w:210px;
+  --sidebar-collapsed-w:64px;
   --red:#dc2626;
   --red-light:#fef2f2;
   --gold:#C9A84C;
@@ -56,10 +59,11 @@ button{font-family:inherit;cursor:pointer}
 body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex}
 
 /* ── SIDEBAR ── */
-.sidebar{width:var(--sidebar-w);background:#fff;border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:100vh;flex-shrink:0;position:fixed;top:0;left:0;bottom:0;z-index:100}
-.sidebar-logo{display:flex;align-items:center;justify-content:center;gap:10px;padding:22px 16px 20px;border-bottom:1px solid var(--border);flex-shrink:0;min-height:80px}
-.logo-icon{width:30px;height:30px;background:var(--accent);border-radius:7px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:14px;flex-shrink:0}
-.logo-text{font-size:15px;font-weight:700;color:var(--text);letter-spacing:-.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sidebar{width:var(--sidebar-w);background:var(--card);backdrop-filter:blur(10px);border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:100vh;flex-shrink:0;position:fixed;top:0;left:0;bottom:0;z-index:100}
+.sidebar-logo{display:flex;align-items:center;justify-content:center;gap:10px;padding:0 16px;border-bottom:1px solid var(--border);flex-shrink:0;height:64px;position:relative}
+.sidebar-logo img{display:block;width:128px;height:auto;object-fit:contain}
+.sidebar-toggle{position:absolute;right:-13px;top:50%;transform:translateY(-50%);width:26px;height:26px;border-radius:50%;border:1px solid var(--border);background:var(--card);color:var(--muted);display:flex;align-items:center;justify-content:center;font-size:15px;z-index:5;box-shadow:0 4px 12px rgba(0,0,0,.08);transition:color .15s,background .15s,transform .15s}
+.sidebar-toggle:hover{color:var(--accent);background:var(--accent-light)}
 .sidebar-nav{flex:1;padding:10px 0;overflow-y:auto}
 .nav-section{font-size:10px;font-weight:600;letter-spacing:.07em;color:#9ca3af;text-transform:uppercase;padding:14px 16px 5px}
 .nav-item{display:flex;align-items:center;gap:9px;padding:8px 16px;font-size:13px;font-weight:500;color:#4b5563;border-left:3px solid transparent;transition:all .12s;cursor:pointer}
@@ -76,7 +80,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-h
 
 /* ── TOPBAR ── */
 .main-wrap{margin-left:var(--sidebar-w);flex:1;display:flex;flex-direction:column;min-height:100vh}
-.topbar{background:#fff;border-bottom:1px solid var(--border);height:64px;padding:0 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}
+.topbar{background:var(--card);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);height:64px;padding:0 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}
 .topbar-left{display:flex;align-items:center;gap:10px}
 .topbar-projeto{display:flex;align-items:center;gap:7px;font-size:14px;font-weight:600;color:var(--text)}
 .topbar-projeto-icon{color:var(--accent);font-size:13px}
@@ -88,7 +92,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-h
 .topbar-caret{color:#9ca3af;font-size:10px;transition:transform .2s}
 .topbar-user.open .topbar-caret{transform:rotate(180deg)}
 
-.tb-dropdown{position:absolute;top:calc(100% + 8px);right:0;background:#fff;border:1px solid var(--border);border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.12);min-width:220px;padding:6px;display:none;z-index:400}
+.tb-dropdown{position:absolute;top:calc(100% + 8px);right:0;background:var(--card);backdrop-filter:blur(10px);border:1px solid var(--border);border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.12);min-width:220px;padding:6px;display:none;z-index:400}
 .tb-dropdown.open{display:block}
 .tb-dd-head{padding:14px 14px 10px;border-bottom:1px solid #f3f4f6;margin-bottom:4px;text-align:center}
 .tb-dd-avatar{width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:#fff;margin:0 auto 8px}
@@ -108,7 +112,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-h
 
 /* ── COMPONENTES COMPAT ── */
 .page-header{margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
-.page-title{font-family:'Playfair Display',serif;font-size:24px;font-weight:800;line-height:1.1}
+.page-title{font-family:'Inter',sans-serif;font-size:24px;font-weight:800;line-height:1.1;letter-spacing:0}
 .btn-primary{padding:9px 18px;background:var(--accent);color:#fff;border:none;border-radius:9px;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer;transition:background .15s}
 .btn-primary:hover{background:var(--accent-dark)}
 .btn-sm{padding:7px 13px;font-size:13px;font-weight:500;font-family:inherit;border-radius:8px;cursor:pointer;border:1.5px solid var(--border);background:var(--card);color:var(--text);transition:all .15s}
@@ -133,15 +137,34 @@ input:focus,select.form-select:focus,textarea:focus{border-color:var(--accent);b
 .form-hint{font-size:12px;color:var(--muted);margin-top:4px}
 .error-msg{background:var(--red-light);color:var(--red);border:1px solid #fecaca;border-radius:8px;padding:9px 13px;font-size:13px;margin-bottom:16px}
 
+body.sidebar-collapsed .sidebar{width:var(--sidebar-collapsed-w)}
+body.sidebar-collapsed .main-wrap{margin-left:var(--sidebar-collapsed-w)}
+body.sidebar-collapsed .nav-section,
+body.sidebar-collapsed .nav-item{font-size:0}
+body.sidebar-collapsed .sidebar-logo{padding-left:12px;padding-right:12px}
+body.sidebar-collapsed .nav-item{justify-content:center;padding-left:0;padding-right:0;gap:0}
+body.sidebar-collapsed .nav-icon{font-size:20px;width:auto}
+body.sidebar-collapsed .sidebar-footer{display:none}
+body.sidebar-collapsed .sidebar-toggle i{transform:rotate(180deg)}
+body.sidebar-collapsed .sidebar-logo img{max-width:34px!important;max-height:34px!important}
+
 /* ── RESPONSIVE ── */
 .mob-ham-btn{display:none;align-items:center;justify-content:center;width:36px;height:36px;border-radius:8px;background:none;border:1.5px solid var(--border);color:var(--text);font-size:18px;cursor:pointer;flex-shrink:0;transition:background .15s}
 .mob-ham-btn:hover{background:#f3f4f6}
 @media(max-width:768px){
   .sidebar{transform:translateX(-100%);transition:transform .25s ease;z-index:200}
   .sidebar.open{transform:translateX(0)}
+  .sidebar-toggle{display:none}
   .mob-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:190}
   .mob-overlay.open{display:block}
   .main-wrap{margin-left:0}
+  body.sidebar-collapsed .sidebar{width:var(--sidebar-w)}
+  body.sidebar-collapsed .main-wrap{margin-left:0}
+  body.sidebar-collapsed .nav-section{font-size:10px}
+  body.sidebar-collapsed .nav-item{font-size:13px}
+  body.sidebar-collapsed .nav-item{justify-content:flex-start;padding:8px 16px;gap:9px}
+  body.sidebar-collapsed .nav-icon{font-size:18px;width:20px}
+  body.sidebar-collapsed .sidebar-footer{display:block}
   .mob-ham-btn{display:flex}
   .main-content{padding:14px 14px 24px}
   .topbar{padding:0 14px;gap:8px}
@@ -159,12 +182,10 @@ input:focus,select.form-select:focus,textarea:focus{border-color:var(--accent);b
 <!-- ══ SIDEBAR ══ -->
 <aside class="sidebar" id="appSidebar">
   <div class="sidebar-logo">
-    <?php if ($_logoUrl): ?>
-      <img src="<?= BASE_PATH . htmlspecialchars($_logoUrl) ?>" alt="Logo" style="max-height:56px;max-width:178px;object-fit:contain;display:block">
-    <?php else: ?>
-      <div class="logo-icon">K</div>
-      <span class="logo-text"><?= htmlspecialchars(APP_NAME) ?></span>
-    <?php endif; ?>
+    <img src="<?= htmlspecialchars(asset_url($_logoUrl)) ?>" alt="Logo">
+    <button class="sidebar-toggle" type="button" onclick="toggleSidebarCollapsed()" aria-label="Recolher menu" title="Recolher menu">
+      <i class="ph ph-caret-left"></i>
+    </button>
   </div>
 
   <nav class="sidebar-nav">
@@ -180,18 +201,20 @@ input:focus,select.form-select:focus,textarea:focus{border-color:var(--accent);b
         ? BASE_PATH . '/dashboard?idx=' . $idx
         : ($dashUrl ? BASE_PATH . $dashUrl : '#');
     ?>
-    <a href="<?= htmlspecialchars($href) ?>" class="nav-item">
+    <a href="<?= htmlspecialchars($href) ?>" class="nav-item <?= str_contains($_requestPath, BASE_PATH . '/dashboard') && (int)($_GET['idx'] ?? -1) === (int)$idx ? 'active' : '' ?>">
       <span class="nav-icon"><i class="ph ph-chart-bar"></i></span>
       <?= htmlspecialchars($dash['nome']) ?>
     </a>
     <?php endforeach; ?>
     <?php endif; ?>
 
-    <div class="nav-section">Principal</div>
-    <a href="<?= BASE_PATH ?>/parlamentares" class="nav-item <?= str_contains($_SERVER['REQUEST_URI'], '/parlamentares') ? 'active' : '' ?>">
+    <a href="<?= BASE_PATH ?>/parlamentares#dashboard-global" data-nav="producao-legislativa" class="nav-item">
+      <span class="nav-icon"><i class="ph ph-chart-pie-slice"></i></span> Produção legislativa
+    </a>
+    <a href="<?= BASE_PATH ?>/parlamentares" data-nav="parlamentares" class="nav-item <?= str_contains($_requestPath, BASE_PATH . '/parlamentares') ? 'active' : '' ?>">
       <span class="nav-icon"><i class="ph ph-buildings"></i></span> Parlamentares
     </a>
-    <a href="<?= BASE_PATH ?>/sentinela" class="nav-item <?= str_contains($_SERVER['REQUEST_URI'], '/sentinela') ? 'active' : '' ?>">
+    <a href="<?= BASE_PATH ?>/sentinela" class="nav-item <?= str_contains($_requestPath, BASE_PATH . '/sentinela') ? 'active' : '' ?>">
       <span class="nav-icon"><i class="ph ph-eye"></i></span> Sentinela IA
     </a>
 
@@ -270,7 +293,7 @@ input:focus,select.form-select:focus,textarea:focus{border-color:var(--accent);b
 <div id="modalCfg" onclick="if(event.target===this)closeCfgModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center">
   <div style="background:#fff;border-radius:16px;padding:28px 28px 24px;width:100%;max-width:480px;margin:16px;box-shadow:0 20px 60px rgba(0,0,0,.2);position:relative">
     <button onclick="closeCfgModal()" style="position:absolute;top:16px;right:16px;background:none;border:none;font-size:20px;color:#9ca3af;cursor:pointer;line-height:1">&#x2715;</button>
-    <h2 style="font-family:'Playfair Display',serif;font-size:20px;font-weight:800;margin-bottom:4px">Configurações</h2>
+    <h2 style="font-family:'Inter',sans-serif;font-size:20px;font-weight:800;margin-bottom:4px;letter-spacing:0">Configurações</h2>
     <p style="font-size:13px;color:#6b7280;margin-bottom:20px">Gerencie sua equipe e perfil de acesso.</p>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <a href="<?= BASE_PATH ?>/admin/usuarios" style="display:flex;align-items:center;gap:14px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:18px 16px;text-decoration:none;color:#111827;transition:border-color .2s,box-shadow .2s" onmouseover="this.style.borderColor='#16a34a';this.style.boxShadow='0 6px 20px rgba(22,163,74,.1)'" onmouseout="this.style.borderColor='#e5e7eb';this.style.boxShadow='none'">
@@ -329,6 +352,21 @@ input:focus,select.form-select:focus,textarea:focus{border-color:var(--accent);b
 <?php endif; ?>
 
 <script>
+(function(){
+  try {
+    if (localStorage.getItem('kc_sidebar_collapsed') === '1') {
+      document.body.classList.add('sidebar-collapsed');
+    }
+  } catch(e) {}
+})();
+
+function toggleSidebarCollapsed(){
+  document.body.classList.toggle('sidebar-collapsed');
+  try {
+    localStorage.setItem('kc_sidebar_collapsed', document.body.classList.contains('sidebar-collapsed') ? '1' : '0');
+  } catch(e) {}
+}
+
 (function(){
   const toggle = document.getElementById('tbUserToggle');
   const dd     = document.getElementById('tbDropdown');

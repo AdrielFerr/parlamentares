@@ -7,6 +7,7 @@ $userNivel = Auth::nivel();
 $_ctxIdForBranding = ($ctx['id'] ?? null);
 $_cssVars  = Configuracao::getCssVars($_ctxIdForBranding);
 $_logoUrl  = Configuracao::logoUrl($_ctxIdForBranding);
+if (!$_logoUrl) $_logoUrl = '/public/assets/keek-verde.png';
 
 $lvls      = ['SuperAdmin','Administrador','Gestor','Analista','Visualizador'];
 $userRole  = $lvls[$userNivel] ?? 'Usuário';
@@ -46,14 +47,14 @@ foreach ($breadcrumbMap as $path => $info) {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Configurações — <?= htmlspecialchars(APP_NAME) ?></title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/@phosphor-icons/web@2.1.1"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 a{text-decoration:none;color:inherit}
 button{font-family:inherit;cursor:pointer}
 :root{
-  --bg:#f0f2f8;--card:#fff;--accent:#16a34a;--accent-light:#f0fdf4;--accent-dark:#15803d;
+  --bg:#f0f2f8;--card:rgba(255,255,255,.94);--accent:#16a34a;--accent-light:#f0fdf4;--accent-dark:#15803d;
   --text:#111827;--muted:#6b7280;--border:#e5e7eb;
   --red:#dc2626;--red-light:#fef2f2;
   <?= $_cssVars ?>
@@ -61,7 +62,7 @@ button{font-family:inherit;cursor:pointer}
 body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column}
 
 /* ── TOPBAR ── */
-.cfg-topbar{background:#fff;border-bottom:1px solid var(--border);height:56px;padding:0 32px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;position:sticky;top:0;z-index:100}
+.cfg-topbar{background:var(--card);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);height:56px;padding:0 32px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;position:sticky;top:0;z-index:100}
 .cfg-topbar-brand{display:flex;align-items:center;gap:12px}
 .cfg-logo-img{max-height:36px;max-width:150px;object-fit:contain}
 .cfg-logo-icon{width:32px;height:32px;background:var(--accent);border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:15px}
@@ -76,7 +77,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-h
 .cfg-user-caret{color:#9ca3af;font-size:11px;transition:transform .2s}
 .cfg-user.open .cfg-user-caret{transform:rotate(180deg)}
 /* Dropdown */
-.cfg-dropdown{position:absolute;top:calc(100% + 8px);right:0;background:#fff;border:1px solid var(--border);border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.12);min-width:210px;padding:6px;display:none;z-index:400}
+.cfg-dropdown{position:absolute;top:calc(100% + 8px);right:0;background:var(--card);backdrop-filter:blur(10px);border:1px solid var(--border);border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.12);min-width:210px;padding:6px;display:none;z-index:400}
 .cfg-dropdown.open{display:block}
 .cfg-dd-head{padding:12px 14px 10px;border-bottom:1px solid #f3f4f6;margin-bottom:4px;text-align:center}
 .cfg-dd-av{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:#fff;margin:0 auto 8px}
@@ -120,7 +121,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-h
 
 /* ── INNER PAGES ── */
 .page-header{margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
-.page-title{font-family:'Playfair Display',serif;font-size:24px;font-weight:800;line-height:1.1}
+.page-title{font-family:'Inter',sans-serif;font-size:24px;font-weight:800;line-height:1.1;letter-spacing:0}
 .btn-primary{padding:9px 18px;background:var(--accent);color:#fff;border:none;border-radius:9px;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer;transition:background .15s}
 .btn-primary:hover{background:var(--accent-dark)}
 .btn-sm{padding:7px 13px;font-size:13px;font-weight:500;font-family:inherit;border-radius:8px;cursor:pointer;border:1.5px solid var(--border);background:var(--card);color:var(--text);transition:all .15s}
@@ -151,12 +152,7 @@ input:focus,select.form-select:focus,textarea:focus{border-color:var(--accent);b
 <!-- TOPBAR -->
 <header class="cfg-topbar">
   <div class="cfg-topbar-brand">
-    <?php if ($_logoUrl): ?>
-      <img src="<?= BASE_PATH . htmlspecialchars($_logoUrl) ?>" alt="Logo" class="cfg-logo-img">
-    <?php else: ?>
-      <div class="cfg-logo-icon">K</div>
-      <span class="cfg-brand-name"><?= htmlspecialchars(APP_NAME) ?></span>
-    <?php endif; ?>
+    <img src="<?= htmlspecialchars(asset_url($_logoUrl)) ?>" alt="Logo" class="cfg-logo-img">
   </div>
   <div class="cfg-topbar-right">
     <div class="cfg-user" id="cfgUserBtn" onclick="toggleCfgDropdown()">

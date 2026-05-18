@@ -1,12 +1,7 @@
 <div class="login-outer">
   <div class="login-logo">
-    <?php $_loginLogo = Configuracao::logoUrl(null); ?>
-    <?php if ($_loginLogo): ?>
-      <img src="<?= BASE_PATH . htmlspecialchars($_loginLogo) ?>" alt="Logo" style="max-height:100px;max-width:300px;object-fit:contain">
-    <?php else: ?>
-      <div class="logo-icon">K</div>
-      <span class="logo-name"><?= htmlspecialchars(APP_NAME) ?></span>
-    <?php endif; ?>
+    <?php $_loginLogo = Configuracao::logoUrl(null) ?: '/public/assets/keek-verde.png'; ?>
+    <img src="<?= htmlspecialchars(asset_url($_loginLogo)) ?>" alt="Logo" style="max-height:100px;max-width:300px;object-fit:contain">
   </div>
 
   <div class="auth-card">

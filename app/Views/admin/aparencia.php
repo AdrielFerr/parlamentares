@@ -95,7 +95,7 @@ $logoUrl      = $cfg['logo_url']   ?? '';
 
     <?php if ($logoUrl): ?>
     <div class="logo-preview-wrap" id="logoCurrentWrap">
-      <img src="<?= BASE_PATH . htmlspecialchars($logoUrl) ?>?t=<?= time() ?>" alt="Logo atual" class="logo-preview-img">
+      <img src="<?= htmlspecialchars(asset_url($logoUrl)) ?>?t=<?= time() ?>" alt="Logo atual" class="logo-preview-img">
       <div>
         <button type="button" class="btn-remove-logo"
                 onclick="if(confirm('Remover a logo atual?')) document.getElementById('formRemoverLogo').submit()">

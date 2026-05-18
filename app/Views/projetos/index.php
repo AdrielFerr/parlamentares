@@ -92,7 +92,7 @@ foreach ($fontes as $f) {
         </div>
         <div class="metric-item">
           <span class="metric-label">Fonte</span>
-          <span class="metric-value small"><?= htmlspecialchars(mb_substr($fonteLabel, 0, 12)) ?></span>
+          <span class="metric-value small"><?= htmlspecialchars($fonteLabel) ?></span>
         </div>
       </div>
 

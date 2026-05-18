@@ -1,17 +1,10 @@
 <div class="login-outer">
-  <div class="login-logo">
-    <?php $_loginLogo = Configuracao::logoUrl(null); ?>
-    <?php if ($_loginLogo): ?>
-      <img src="<?= BASE_PATH . htmlspecialchars($_loginLogo) ?>" alt="Logo" style="max-height:100px;max-width:300px;object-fit:contain">
-    <?php else: ?>
-      <div class="logo-icon">K</div>
-      <span class="logo-name"><?= htmlspecialchars(APP_NAME) ?></span>
-    <?php endif; ?>
-  </div>
-
   <div class="auth-card">
-    <h1 class="auth-heading">Bem-vindo de volta</h1>
-    <p class="auth-sub">Acesse sua plataforma de inteligência legislativa</p>
+    <div class="login-logo">
+      <?php $_loginLogo = Configuracao::logoUrl(null) ?: '/public/assets/keek-verde.png'; ?>
+      <img src="<?= htmlspecialchars(asset_url($_loginLogo)) ?>" alt="Logo">
+      <p>Plataforma de inteligência legislativa</p>
+    </div>
 
     <?php if ($error): ?>
       <div class="error-msg">
@@ -46,5 +39,4 @@
       <button type="submit" class="btn-primary">Entrar na plataforma</button>
     </form>
   </div>
-  <div class="auth-footer">KeekConecta — Inteligência Legislativa</div>
 </div>
