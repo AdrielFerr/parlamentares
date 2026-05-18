@@ -21,7 +21,7 @@ if ($_projetoId) {
 }
 $_cssVars = Configuracao::getCssVars($_clienteIdForBranding);
 $_logoUrl = Configuracao::logoUrl($_clienteIdForBranding);
-if (!$_logoUrl) $_logoUrl = '/public/assets/keek-verde.png';
+if (!$_logoUrl) $_logoUrl = BASE_PATH . '/public/assets/keek-verde.png';
 $_requestPath = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?: '';
 ?>
 <!DOCTYPE html>

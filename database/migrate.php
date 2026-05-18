@@ -518,4 +518,21 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS parl_extras (
 
 echo "[migrate] Tabela parl_extras criada.\n";
 
+$pdo->exec("CREATE TABLE IF NOT EXISTS parl_emendas_municipios (
+    id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    source_key      VARCHAR(50)   NOT NULL,
+    emenda_cod      VARCHAR(100)  NOT NULL,
+    ano             SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    municipio       VARCHAR(300)  NOT NULL DEFAULT '',
+    uf              VARCHAR(5)    NOT NULL DEFAULT '',
+    valor_empenhado DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+    valor_liquidado DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+    valor_pago      DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+    atualizado_em   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_cod (source_key, emenda_cod),
+    INDEX idx_ano (source_key, ano)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+echo "[migrate] Tabela parl_emendas_municipios criada.\n";
+
 echo "[migrate] Concluído.\n";

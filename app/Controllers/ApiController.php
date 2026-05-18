@@ -675,6 +675,30 @@ class ApiController extends Controller {
             if ($ano) $params[] = $ano;
             $st->execute($params);
             $rows = $st->fetchAll(PDO::FETCH_ASSOC);
+
+            // Carrega breakdown por município para emendas com múltiplos destinos
+            $codigos = array_values(array_filter(array_unique(array_column($rows, 'emenda_cod'))));
+            $municipiosMap = [];
+            if ($codigos) {
+                $ph = implode(',', array_fill(0, count($codigos), '?'));
+                $stMun = $db->prepare(
+                    "SELECT emenda_cod, municipio, uf, valor_empenhado, valor_liquidado, valor_pago
+                     FROM parl_emendas_municipios
+                     WHERE source_key = ? AND emenda_cod IN ($ph)
+                     ORDER BY valor_empenhado DESC"
+                );
+                $stMun->execute([$source, ...$codigos]);
+                foreach ($stMun->fetchAll(PDO::FETCH_ASSOC) as $m) {
+                    $municipiosMap[$m['emenda_cod']][] = [
+                        'municipio' => $m['municipio'],
+                        'uf'        => $m['uf'],
+                        'emp'       => (float)$m['valor_empenhado'],
+                        'liq'       => (float)$m['valor_liquidado'],
+                        'pag'       => (float)$m['valor_pago'],
+                    ];
+                }
+            }
+
             return $wrap(array_map(fn($r) => [
                 '__str__'          => trim("{$r['tipo']} nº {$r['numero']}/{$r['ano']}" . ($r['localidade'] ? " — {$r['localidade']}" : '')),
                 'id'               => $r['emenda_cod'],
@@ -691,6 +715,7 @@ class ApiController extends Controller {
                 'valor_empenhado'  => (float)$r['valor_empenhado'],
                 'valor_liquidado'  => (float)$r['valor_liquidado'],
                 'valor_pago'       => (float)$r['valor_pago'],
+                'municipios'       => $municipiosMap[$r['emenda_cod']] ?? [],
             ], $rows));
         }
 
@@ -1131,16 +1156,29 @@ class ApiController extends Controller {
             $emParams
         );
         $emendasPorLocalidade = $rows(
-            "SELECT COALESCE(NULLIF(e.localidade,''),'Não informado') label,
-                    SUM(e.valor_dotacao) dotacao,
-                    SUM(e.valor_empenhado) empenhado,
-                    SUM(e.valor_liquidado) liquidado,
-                    SUM(e.valor_pago) pago
-             FROM parl_emendas e
-             JOIN parl_parlamentares pp ON pp.source_key = e.source_key AND pp.sapl_id = e.parlamentar_id
-             WHERE e.source_key = ? $anoEmWhere AND $parlWhereSql
+            "SELECT label,
+                    SUM(dotacao) dotacao, SUM(empenhado) empenhado,
+                    SUM(liquidado) liquidado, SUM(pago) pago
+             FROM (
+               SELECT COALESCE(NULLIF(e.localidade,''),'Não informado') label,
+                      e.valor_dotacao dotacao, e.valor_empenhado empenhado,
+                      e.valor_liquidado liquidado, e.valor_pago pago
+               FROM parl_emendas e
+               JOIN parl_parlamentares pp ON pp.source_key = e.source_key AND pp.sapl_id = e.parlamentar_id
+               WHERE e.source_key = ? $anoEmWhere AND $parlWhereSql
+                 AND NOT EXISTS (SELECT 1 FROM parl_emendas_municipios em2
+                                 WHERE em2.source_key = e.source_key AND em2.emenda_cod = e.emenda_cod AND em2.ano = e.ano)
+               UNION ALL
+               SELECT CONCAT(em.municipio, IF(em.uf != '' AND em.uf != '-1', CONCAT(' - ', em.uf), '')) label,
+                      0 dotacao, em.valor_empenhado empenhado,
+                      em.valor_liquidado liquidado, em.valor_pago pago
+               FROM parl_emendas e
+               JOIN parl_parlamentares pp ON pp.source_key = e.source_key AND pp.sapl_id = e.parlamentar_id
+               JOIN parl_emendas_municipios em ON em.source_key = e.source_key AND em.emenda_cod = e.emenda_cod AND em.ano = e.ano
+               WHERE e.source_key = ? $anoEmWhere AND $parlWhereSql
+             ) t
              GROUP BY label ORDER BY empenhado DESC",
-            $emParams
+            array_merge($emParams, $emParams)
         );
 
         $subYearMat = $ano ? ' AND m.ano = ?' : ' AND m.ano BETWEEN ? AND ?';
