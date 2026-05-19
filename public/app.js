@@ -1555,10 +1555,97 @@ async function renderTabNormas(p) {
 // ══════════════════════════════════════════════════════
 // TAB: EMENDAS (Câmara Federal)
 // ══════════════════════════════════════════════════════
-let _emendaYear   = new Date().getFullYear();
+let _emendaYear   = String(new Date().getFullYear());
 let _emendaFuncao = '';
 let _emendaOrgao  = '';
 let _emendaLocal  = '';
+
+const UF_NOMES_BR = {
+  'ACRE':'AC','ALAGOAS':'AL','AMAPÁ':'AP','AMAPA':'AP','AMAZONAS':'AM','BAHIA':'BA','CEARÁ':'CE','CEARA':'CE',
+  'DISTRITO FEDERAL':'DF','ESPÍRITO SANTO':'ES','ESPIRITO SANTO':'ES','GOIÁS':'GO','GOIAS':'GO','MARANHÃO':'MA','MARANHAO':'MA',
+  'MATO GROSSO':'MT','MATO GROSSO DO SUL':'MS','MINAS GERAIS':'MG','PARÁ':'PA','PARA':'PA','PARAÍBA':'PB','PARAIBA':'PB',
+  'PARANÁ':'PR','PARANA':'PR','PERNAMBUCO':'PE','PIAUÍ':'PI','PIAUI':'PI','RIO DE JANEIRO':'RJ','RIO GRANDE DO NORTE':'RN',
+  'RIO GRANDE DO SUL':'RS','RONDÔNIA':'RO','RONDONIA':'RO','RORAIMA':'RR','SANTA CATARINA':'SC','SÃO PAULO':'SP','SAO PAULO':'SP',
+  'SERGIPE':'SE','TOCANTINS':'TO',
+  'AMAPµ':'AP','CEARµ':'CE','ESPÖRITO SANTO':'ES','GOIµS':'GO','MARANHÇO':'MA','PARµ':'PA','PARAÖBA':'PB','PARANµ':'PR',
+  'PIAUÖ':'PI','SÇO PAULO':'SP','SCO PAULO':'SP'
+};
+
+function normLocalText(v) {
+  return String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().trim();
+}
+function parseEmendaLocalidade(localidade) {
+  const raw = String(localidade || '').trim();
+  const normalized = normLocalText(raw);
+  if(!raw) return null;
+  if(normalized === 'NACIONAL') return {scope:'nacional', label:'Nacional'};
+
+  let m = raw.match(/^(.+?)\s*\(UF\)$/i);
+  if(m) {
+    const nome = m[1].trim();
+    const uf = UF_NOMES_BR[normLocalText(nome)] || '';
+    if(uf) return {scope:'uf', uf, label:`${uf} - ${nome}`};
+  }
+
+  m = raw.match(/^(.+?)\s*-\s*([A-Z]{2})$/i);
+  if(m) {
+    const municipio = m[1].trim();
+    const uf = m[2].toUpperCase();
+    return {scope:'mun', municipio, uf, label:`${municipio}/${uf}`};
+  }
+
+  return null;
+}
+function emendaLocalOptions(emendas) {
+  const ufs = new Map();
+  const municipios = new Map();
+  let hasNacional = false;
+
+  emendas.forEach(e => {
+    const parsed = parseEmendaLocalidade(e.localidade);
+    if(parsed?.scope === 'nacional') hasNacional = true;
+    if(parsed?.scope === 'uf') ufs.set(parsed.uf, parsed.label);
+    if(parsed?.scope === 'mun') municipios.set(`${normLocalText(parsed.municipio)}|${parsed.uf}`, parsed.label);
+
+    (e.municipios || []).forEach(m => {
+      const municipio = String(m.municipio || '').trim();
+      const uf = String(m.uf || '').trim().toUpperCase();
+      if(!municipio || !uf || uf === '-1') return;
+      ufs.set(uf, `${uf} - UF`);
+      municipios.set(`${normLocalText(municipio)}|${uf}`, `${municipio}/${uf}`);
+    });
+  });
+
+  return {
+    nacional: hasNacional,
+    ufs: [...ufs.entries()].sort((a,b) => a[0].localeCompare(b[0])),
+    municipios: [...municipios.entries()].sort((a,b) => a[1].localeCompare(b[1], 'pt-BR')),
+  };
+}
+function emendaMatchesLocalFilter(e, filter) {
+  if(!filter) return true;
+  const [scope, rest] = String(filter).split(':');
+  const parsed = parseEmendaLocalidade(e.localidade);
+
+  if(scope === 'nacional') return parsed?.scope === 'nacional';
+
+  if(scope === 'uf') {
+    const uf = rest || '';
+    if(parsed?.scope === 'uf' && parsed.uf === uf) return true;
+    if(parsed?.scope === 'mun' && parsed.uf === uf) return true;
+    return (e.municipios || []).some(m => String(m.uf || '').toUpperCase() === uf);
+  }
+
+  if(scope === 'mun') {
+    const [munNorm, uf] = (rest || '').split('|');
+    if(parsed?.scope === 'mun' && parsed.uf === uf && normLocalText(parsed.municipio) === munNorm) return true;
+    return (e.municipios || []).some(m =>
+      String(m.uf || '').toUpperCase() === uf && normLocalText(m.municipio) === munNorm
+    );
+  }
+
+  return true;
+}
 
 async function renderTabEmendas(p) {
   const fmtBRL = v => v>0 ? 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—';
@@ -1568,20 +1655,23 @@ async function renderTabEmendas(p) {
   const anos = [];
   for(let y=anoHoje; y>=2015; y--) anos.push(y);
 
-  const emendas = await getCached(p.id,`emendas_${_emendaYear}`,()=>
-    fetchAllPages(`/emendas/parlamentar/?parlamentar=${p.id}&ano=${_emendaYear}`)
+  const emendaAnoParam = _emendaYear ? `&ano=${_emendaYear}` : '';
+  const emendaCacheKey = _emendaYear ? `emendas_${_emendaYear}` : 'emendas_todos_anos';
+  const emendaPeriodoLabel = _emendaYear || 'todos os anos';
+  const emendas = await getCached(p.id, emendaCacheKey, () =>
+    fetchAllPages(`/emendas/parlamentar/?parlamentar=${p.id}${emendaAnoParam}`)
   );
 
   // Opções únicas para filtros
   const funcoes    = [...new Set(emendas.map(e=>e.funcao||'').filter(Boolean))].sort();
   const orgaos     = [...new Set(emendas.map(e=>e.orgao||'').filter(Boolean))].sort();
-  const localidades= [...new Set(emendas.map(e=>e.localidade||'').filter(Boolean))].sort();
+  const localidades= emendaLocalOptions(emendas);
 
   // Aplica filtros
   const lista = emendas.filter(e=>
     (!_emendaFuncao || e.funcao===_emendaFuncao) &&
     (!_emendaOrgao  || e.orgao===_emendaOrgao)   &&
-    (!_emendaLocal  || e.localidade===_emendaLocal)
+    emendaMatchesLocalFilter(e, _emendaLocal)
   );
 
   const totalDot = lista.reduce((s,e)=>s+(e.valor_dotacao||0),0);
@@ -1599,7 +1689,8 @@ async function renderTabEmendas(p) {
   h+=`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">`;
   h+=`<span style="font-size:12px;color:var(--muted);font-weight:600">Ano:</span>`;
   h+=`<select onchange="switchEmendaAno(${p.id},this.value)" style="${selStyle}">`;
-  anos.forEach(y=>{ h+=`<option value="${y}"${y===_emendaYear?' selected':''}>${y}</option>`; });
+  h+=`<option value=""${_emendaYear===''?' selected':''}>Todos os anos</option>`;
+  anos.forEach(y=>{ h+=`<option value="${y}"${String(y)===String(_emendaYear)?' selected':''}>${y}</option>`; });
   h+=`</select>`;
 
   // Filtro funcao
@@ -1617,10 +1708,22 @@ async function renderTabEmendas(p) {
   }
 
   // Filtro localidade
-  if(localidades.length){
+  if(localidades.nacional || localidades.ufs.length || localidades.municipios.length){
     h+=`<select onchange="filterEmendas(${p.id},'local',this.value)" style="${selStyle}" title="Filtrar por localidade">`;
     h+=`<option value="">Todas as localidades</option>`;
-    localidades.forEach(l=>{ h+=`<option value="${esc(l)}"${_emendaLocal===l?' selected':''}>${esc(l.length>28?l.slice(0,28)+'…':l)}</option>`; });
+    if(localidades.nacional) {
+      h+=`<option value="nacional:"${_emendaLocal==='nacional:'?' selected':''}>Nacional</option>`;
+    }
+    if(localidades.ufs.length) {
+      h+=`<optgroup label="UF">`;
+      localidades.ufs.forEach(([uf,label])=>{ h+=`<option value="uf:${esc(uf)}"${_emendaLocal===`uf:${uf}`?' selected':''}>${esc(label)}</option>`; });
+      h+=`</optgroup>`;
+    }
+    if(localidades.municipios.length) {
+      h+=`<optgroup label="Municípios">`;
+      localidades.municipios.forEach(([key,label])=>{ h+=`<option value="mun:${esc(key)}"${_emendaLocal===`mun:${key}`?' selected':''}>${esc(label.length>34?label.slice(0,34)+'…':label)}</option>`; });
+      h+=`</optgroup>`;
+    }
     h+=`</select>`;
   }
 
@@ -1632,7 +1735,7 @@ async function renderTabEmendas(p) {
   if(!emendas.length){
     h+=`<div class="empty-tab" style="padding:40px 0">
       <i class="ph ph-money" style="font-size:32px;color:var(--muted);opacity:.4;display:block;margin-bottom:12px"></i>
-      <p style="font-weight:600;color:var(--text);margin-bottom:4px">Nenhuma emenda encontrada em ${_emendaYear}</p>
+      <p style="font-weight:600;color:var(--text);margin-bottom:4px">Nenhuma emenda encontrada em ${emendaPeriodoLabel}</p>
       <p style="font-size:12px;color:var(--muted)">Tente selecionar outro ano ou verifique se o parlamentar apresentou emendas nesse período.</p>
     </div>`;
     h+='</div>';
@@ -1758,7 +1861,7 @@ async function renderTabEmendas(p) {
 }
 
 function switchEmendaAno(parlId, ano) {
-  _emendaYear   = parseInt(ano);
+  _emendaYear   = ano ? String(ano) : '';
   _emendaFuncao = '';
   _emendaOrgao  = '';
   _emendaLocal  = '';
@@ -2637,9 +2740,11 @@ function renderGlobalDashboard() {
     `<div class="global-kpi ${cls}"><div class="global-kpi-label">${esc(label)}</div><div class="global-kpi-value ${money?'global-kpi-money':''}">${money ? fmtMoney(value) : fmtCompact(value)}</div></div>`;
   const chartCard = (id, title, height=280, extra='') => {
     const scroll = extra.includes('scroll');
+    const htmlBars = extra.includes('html-bars');
     const items = extra.match(/items-(\d+)/)?.[1] || 10;
     const frameStyle = scroll ? `--chart-items:${items}` : `height:${height}px`;
-    const frame = `<div class="global-chart-frame" style="${frameStyle}"><canvas id="${id}"></canvas></div>`;
+    const frameClass = `global-chart-frame${htmlBars ? ' global-html-bars-frame' : ''}`;
+    const frame = `<div class="${frameClass}" style="${frameStyle}"><canvas id="${id}"></canvas></div>`;
     return `<div class="global-chart-card ${extra}"><h3 class="global-chart-title">${esc(title)}</h3>${scroll ? `<div class="global-chart-scroll">${frame}</div>` : frame}</div>`;
   };
   const renderParlFilter = () => {
@@ -2718,7 +2823,7 @@ function renderGlobalDashboard() {
   if(isCamaraDash || (k.emendas||0) > 0) {
     h += '<section class="global-section"><h2 class="global-section-title">Emendas</h2><div class="global-chart-grid">';
     h += chartCard('chartGlobalEmFuncao', 'Emendas por função', 280, `scroll items-${Math.max(10, (data.charts?.emendas_por_funcao || []).length)}`);
-    h += chartCard('chartGlobalEmLocal', 'Top localidades', 280, `scroll items-${Math.max(10, (data.charts?.emendas_por_localidade || []).length)}`);
+    h += chartCard('chartGlobalEmLocal', 'Top localidades', 280, 'scroll items-10 html-bars');
     h += '</div></section>';
   }
 
@@ -2824,6 +2929,8 @@ function renderGlobalDashboardCharts() {
     const canvas = document.getElementById(id);
     if(!canvas) return;
     const wrap = canvas.parentElement;
+    canvas.style.display = '';
+    wrap?.querySelectorAll('.chart-empty-msg').forEach(el => el.remove());
     if(!series || !series.length) {
       canvas.style.display = 'none';
       if(wrap && !wrap.querySelector('.chart-empty-msg')) {
@@ -2835,9 +2942,41 @@ function renderGlobalDashboardCharts() {
       }
       return;
     }
+    const valueField = opts.valueField || (opts.money ? 'empenhado' : 'total');
+    const nonZeroSeries = series.filter(x => Number(x?.[valueField] ?? 0) > 0);
+    if(!nonZeroSeries.length) {
+      canvas.style.display = 'none';
+      if(wrap && !wrap.querySelector('.chart-empty-msg')) {
+        const d = document.createElement('div');
+        d.className = 'chart-empty-msg';
+        d.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:12px;text-align:center;padding:8px';
+        d.textContent = 'Nenhum dado para os filtros selecionados';
+        wrap.appendChild(d);
+      }
+      return;
+    }
+    if(opts.htmlBars) {
+      const maxValue = Math.max(...nonZeroSeries.map(x => Number(x?.[valueField] ?? 0)), 1);
+      const rows = nonZeroSeries.map(x => {
+        const fullLabel = String(x.label || '');
+        const shownLabel = fullLabel.length > (opts.maxLabel || 36) ? fullLabel.slice(0, (opts.maxLabel || 36) - 1) + '…' : fullLabel;
+        const value = Number(x?.[valueField] ?? 0);
+        const pct = Math.max(2, Math.round((value / maxValue) * 100));
+        return `<div class="global-html-bar-row" title="${esc(fullLabel)}">
+          <div class="global-html-bar-label">${esc(shownLabel)}</div>
+          <div class="global-html-bar-track"><div class="global-html-bar-fill" style="width:${pct}%"></div></div>
+          <div class="global-html-bar-value">${esc(opts.money ? fmtMoney(value) : fmtChartValue(value))}</div>
+        </div>`;
+      }).join('');
+      canvas.remove();
+      wrap.style.height = 'auto';
+      wrap.style.minHeight = 'auto';
+      wrap.innerHTML = `<div class="global-html-bar-list">${rows}</div>`;
+      return;
+    }
     const maxLabel = opts.maxLabel || (opts.horizontal ? 36 : 18);
-    const labels = series.map(x => String(x.label || '').length > maxLabel ? String(x.label).slice(0,maxLabel-1)+'…' : String(x.label || ''));
-    const values = series.map(x => opts.money ? Number(x.empenhado||0) : Number(x.total||0));
+    const labels = nonZeroSeries.map(x => String(x.label || '').length > maxLabel ? String(x.label).slice(0,maxLabel-1)+'…' : String(x.label || ''));
+    const values = nonZeroSeries.map(x => Number(x?.[valueField] ?? 0));
     const categoryTicks = {font, autoSkip:true, maxTicksLimit:opts.maxTicks||10, callback:function(value){ return this.getLabelForValue(value); }};
     const valueTicks = opts.money ? {font, callback:moneyTick} : {font};
     const scales = opts.horizontal
@@ -2877,7 +3016,7 @@ function renderGlobalDashboardCharts() {
   mount('chartGlobalNormAno', 'bar', charts.normas_por_ano, {label:'Sancionadas', maxTicks:4, showValues:true});
   mount('chartGlobalNormTipo', 'bar', charts.normas_por_tipo, {label:'Tipos', horizontal:true, maxLabel:34});
   mount('chartGlobalEmFuncao', 'bar', charts.emendas_por_funcao, {label:'Empenhado', money:true, horizontal:true, maxLabel:34});
-  mount('chartGlobalEmLocal', 'bar', charts.emendas_por_localidade, {label:'Empenhado', money:true, horizontal:true, maxLabel:36});
+  mount('chartGlobalEmLocal', 'bar', charts.emendas_por_localidade, {label:'Empenhado', money:true, valueField:'empenhado', horizontal:true, maxLabel:36, htmlBars:true});
 }
 
 // ══════════════════════════════════════════════════════

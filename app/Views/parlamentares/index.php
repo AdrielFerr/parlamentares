@@ -151,6 +151,13 @@ td{color:#111827}
 .global-chart-frame{position:relative;height:280px;min-width:0}
 .global-chart-scroll{height:280px;overflow-y:auto;overflow-x:hidden;padding-right:6px}
 .global-chart-scroll .global-chart-frame{height:calc(var(--chart-items, 10) * 28px);min-height:280px}
+.global-chart-scroll .global-html-bars-frame{height:auto!important;min-height:auto!important}
+.global-html-bar-list{display:flex;flex-direction:column;gap:7px;padding:2px 2px 8px}
+.global-html-bar-row{display:grid;grid-template-columns:minmax(92px,34%) 1fr auto;align-items:center;gap:9px;min-height:22px}
+.global-html-bar-label{font-size:11px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.global-html-bar-track{height:10px;background:#eef2f7;border-radius:99px;overflow:hidden;min-width:90px}
+.global-html-bar-fill{height:100%;background:#1A6B4F;border-radius:99px}
+.global-html-bar-value{font-size:11px;font-weight:800;color:#16a34a;white-space:nowrap;text-align:right}
 .global-rank-grid{display:grid;grid-template-columns:repeat(2,minmax(320px,1fr));gap:14px}
 .global-rank-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:15px;min-width:0}
 .global-table-title{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}

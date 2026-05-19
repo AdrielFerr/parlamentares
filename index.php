@@ -103,6 +103,7 @@ $router->add('GET',  '/api/cache/status',      'ApiController', 'cacheStatus');
 $router->add('GET',  '/api/bulk',              'ApiController', 'bulk');
 $router->add('GET',  '/api/agente-contexto',   'ApiController', 'agenteContexto');
 $router->add('GET',  '/api/dashboard-global',  'ApiController', 'dashboardGlobal');
+$router->add('POST', '/api/agente-global',     'ApiController', 'agenteGlobal');
 $router->add('GET',    '/api/cache/sincronizar',   'ApiController', 'sincronizar');
 $router->add('GET',    '/api/agente-historico',    'ApiController', 'agenteHistorico');
 $router->add('POST',   '/api/agente-historico',    'ApiController', 'agenteHistorico');

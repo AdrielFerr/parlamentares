@@ -1015,6 +1015,31 @@ class ApiController extends Controller {
             $st->execute($params);
             return $st->fetch(PDO::FETCH_ASSOC) ?: [];
         };
+        $syncVersion = $one(
+            "SELECT COALESCE(UNIX_TIMESTAMP(GREATEST(
+                        COALESCE(detalhes_em, '1970-01-01'),
+                        COALESCE(concluido_em, '1970-01-01')
+                    )), 0) version
+             FROM fonte_sincs
+             WHERE source_key = ?",
+            [$source]
+        );
+        $dashboardCacheKey = '/dashboard-global/v5/' . md5(json_encode([
+            'source' => $source,
+            'ano' => $ano,
+            'partido' => $partido,
+            'uf' => $uf,
+            'parlamentar' => $parlamentar,
+            'ativo' => $ativo,
+            'sync' => (int)($syncVersion['version'] ?? 0),
+        ], JSON_UNESCAPED_UNICODE));
+        $cachedDashboard = SaplCache::get($source, $dashboardCacheKey);
+        if ($cachedDashboard !== null) {
+            header('Content-Type: application/json; charset=utf-8');
+            header('X-Cache: DASHBOARD-HIT');
+            echo $cachedDashboard;
+            exit;
+        }
         $series = fn(array $items, string $label = 'label', string $value = 'total'): array =>
             array_map(fn($r) => ['label' => (string)($r[$label] ?? ''), 'total' => (int)($r[$value] ?? 0)], $items);
         $moneySeries = fn(array $items, string $label = 'label'): array =>
@@ -1036,38 +1061,180 @@ class ApiController extends Controller {
         $dateYearWhere = $ano ? ' = ? ' : ' BETWEEN ? AND ? ';
         $dateYearParams = $ano ? [$ano] : [$anoInicio, $anoFim];
 
-        $parlStats = $one(
-            "SELECT COUNT(*) total, SUM(pp.ativo = 1) ativos
+        $parlBaseRows = $rows(
+            "SELECT pp.sapl_id id, pp.nome_parlamentar, pp.nome_completo, pp.partido_sigla, pp.uf, pp.ativo
              FROM parl_parlamentares pp
              WHERE $parlWhereSql",
             $parlParams
         );
+        $parlStats = [
+            'total'  => count($parlBaseRows),
+            'ativos' => array_sum(array_map(fn($r) => (int)$r['ativo'] === 1 ? 1 : 0, $parlBaseRows)),
+        ];
 
-        $matStats = $one(
-            "SELECT COUNT(*) total, SUM(m.primeiro_autor = 1) primeiro_autor
+        $rankingById = [];
+        foreach ($parlBaseRows as $r) {
+            $id = (int)$r['id'];
+            $rankingById[$id] = [
+                'id'             => $id,
+                'nome_parlamentar' => $r['nome_parlamentar'],
+                'nome_completo'  => $r['nome_completo'],
+                'partido_sigla'  => $r['partido_sigla'],
+                'uf'             => $r['uf'],
+                'materias'       => 0,
+                'primeiro_autor' => 0,
+                'normas'         => 0,
+                'emendas'        => 0,
+                'dotacao'        => 0.0,
+                'empenhado'      => 0.0,
+                'liquidado'      => 0.0,
+                'pago'           => 0.0,
+            ];
+        }
+
+        $countSeries = function (array $map, bool $desc = true): array {
+            $desc ? arsort($map, SORT_NUMERIC) : ksort($map, SORT_NATURAL);
+            $out = [];
+            foreach ($map as $label => $total) {
+                $out[] = ['label' => (string)$label, 'total' => (int)$total];
+            }
+            return $out;
+        };
+        $moneyRows = function (array $map): array {
+            uasort($map, fn($a, $b) => ((float)$b['empenhado'] <=> (float)$a['empenhado']));
+            $out = [];
+            foreach ($map as $label => $v) {
+                $out[] = [
+                    'label'     => (string)$label,
+                    'dotacao'   => (float)$v['dotacao'],
+                    'empenhado' => (float)$v['empenhado'],
+                    'liquidado' => (float)$v['liquidado'],
+                    'pago'      => (float)$v['pago'],
+                ];
+            }
+            return $out;
+        };
+        $addMoney = function (array &$map, string $label, float $dotacao, float $empenhado, float $liquidado, float $pago): void {
+            if (!isset($map[$label])) {
+                $map[$label] = ['dotacao' => 0.0, 'empenhado' => 0.0, 'liquidado' => 0.0, 'pago' => 0.0];
+            }
+            $map[$label]['dotacao'] += $dotacao;
+            $map[$label]['empenhado'] += $empenhado;
+            $map[$label]['liquidado'] += $liquidado;
+            $map[$label]['pago'] += $pago;
+        };
+
+        $materiasAgg = $rows(
+            "SELECT m.sapl_id, m.ano,
+                    CASE
+                        WHEN m.tipo_sigla <> '' THEN m.tipo_sigla
+                        WHEN m.descricao REGEXP '^[A-Z][A-Z0-9-]*[[:space:]]' THEN SUBSTRING_INDEX(m.descricao, ' ', 1)
+                        ELSE 'Outros'
+                    END label,
+                    COUNT(*) total,
+                    SUM(m.primeiro_autor = 1) primeiro_autor
              FROM parl_materias m
              JOIN parl_parlamentares pp ON pp.source_key = m.source_key AND pp.sapl_id = m.sapl_id
-             WHERE m.source_key = ? $anoMatWhere AND $parlWhereSql",
+             WHERE m.source_key = ? $anoMatWhere AND $parlWhereSql
+             GROUP BY m.sapl_id, m.ano, label",
             $matParams
         );
-        $normStats = $one(
-            "SELECT COUNT(*) total
+        $materiasPorAnoMap = [];
+        $materiasPorTipoMap = [];
+        $producaoPorPartidoMap = [];
+        $producaoPorUfMap = [];
+        $totalMaterias = 0;
+        $totalPrimeiro = 0;
+        foreach ($materiasAgg as $r) {
+            $id = (int)$r['sapl_id'];
+            if (!isset($rankingById[$id])) continue;
+            $total = (int)$r['total'];
+            $primeiro = (int)$r['primeiro_autor'];
+            $tipo = (string)($r['label'] ?: 'Outros');
+            $anoLabel = (string)$r['ano'];
+            $partidoLabel = $rankingById[$id]['partido_sigla'] ?: 'Sem partido';
+            $ufLabel = $rankingById[$id]['uf'] ?: '--';
+
+            $totalMaterias += $total;
+            $totalPrimeiro += $primeiro;
+            $materiasPorAnoMap[$anoLabel] = ($materiasPorAnoMap[$anoLabel] ?? 0) + $total;
+            $materiasPorTipoMap[$tipo] = ($materiasPorTipoMap[$tipo] ?? 0) + $total;
+            $producaoPorPartidoMap[$partidoLabel] = ($producaoPorPartidoMap[$partidoLabel] ?? 0) + $total;
+            $producaoPorUfMap[$ufLabel] = ($producaoPorUfMap[$ufLabel] ?? 0) + $total;
+            $rankingById[$id]['materias'] += $total;
+            $rankingById[$id]['primeiro_autor'] += $primeiro;
+        }
+        $matStats = ['total' => $totalMaterias, 'primeiro_autor' => $totalPrimeiro];
+        $materiasPorAno = $countSeries($materiasPorAnoMap, false);
+        $materiasPorTipo = $countSeries($materiasPorTipoMap);
+        $producaoPorPartido = $countSeries($producaoPorPartidoMap);
+        $producaoPorUf = $countSeries($producaoPorUfMap);
+
+        $normasAgg = $rows(
+            "SELECT n.sapl_id, n.ano, COALESCE(NULLIF(n.tipo_sigla,''),'Outros') label, COUNT(*) total
              FROM parl_normas n
              JOIN parl_parlamentares pp ON pp.source_key = n.source_key AND pp.sapl_id = n.sapl_id
-             WHERE n.source_key = ? $anoNormWhere AND $parlWhereSql",
+             WHERE n.source_key = ? $anoNormWhere AND $parlWhereSql
+             GROUP BY n.sapl_id, n.ano, label",
             $normParams
         );
-        $emStats = $one(
-            "SELECT COUNT(*) total,
+        $normasPorAnoMap = [];
+        $normasPorTipoMap = [];
+        $totalNormas = 0;
+        foreach ($normasAgg as $r) {
+            $id = (int)$r['sapl_id'];
+            if (!isset($rankingById[$id])) continue;
+            $total = (int)$r['total'];
+            $anoLabel = (string)$r['ano'];
+            $tipo = (string)($r['label'] ?: 'Outros');
+            $totalNormas += $total;
+            $normasPorAnoMap[$anoLabel] = ($normasPorAnoMap[$anoLabel] ?? 0) + $total;
+            $normasPorTipoMap[$tipo] = ($normasPorTipoMap[$tipo] ?? 0) + $total;
+            $rankingById[$id]['normas'] += $total;
+        }
+        $normStats = ['total' => $totalNormas];
+        $normasPorAno = $countSeries($normasPorAnoMap, false);
+        $normasPorTipo = array_slice($countSeries($normasPorTipoMap), 0, 12);
+
+        $emendasAgg = $rows(
+            "SELECT e.parlamentar_id, COALESCE(NULLIF(e.funcao,''),'Não classificado') label,
+                    COUNT(*) total,
                     SUM(e.valor_dotacao) dotacao,
                     SUM(e.valor_empenhado) empenhado,
                     SUM(e.valor_liquidado) liquidado,
                     SUM(e.valor_pago) pago
              FROM parl_emendas e
              JOIN parl_parlamentares pp ON pp.source_key = e.source_key AND pp.sapl_id = e.parlamentar_id
-             WHERE e.source_key = ? $anoEmWhere AND $parlWhereSql",
+             WHERE e.source_key = ? $anoEmWhere AND $parlWhereSql
+             GROUP BY e.parlamentar_id, label",
             $emParams
         );
+        $emStats = ['total' => 0, 'dotacao' => 0.0, 'empenhado' => 0.0, 'liquidado' => 0.0, 'pago' => 0.0];
+        $emendasPorFuncaoMap = [];
+        foreach ($emendasAgg as $r) {
+            $id = (int)$r['parlamentar_id'];
+            if (!isset($rankingById[$id])) continue;
+            $total = (int)$r['total'];
+            $dotacao = (float)$r['dotacao'];
+            $empenhado = (float)$r['empenhado'];
+            $liquidado = (float)$r['liquidado'];
+            $pago = (float)$r['pago'];
+            $label = (string)($r['label'] ?: 'Não classificado');
+
+            $emStats['total'] += $total;
+            $emStats['dotacao'] += $dotacao;
+            $emStats['empenhado'] += $empenhado;
+            $emStats['liquidado'] += $liquidado;
+            $emStats['pago'] += $pago;
+            $addMoney($emendasPorFuncaoMap, $label, $dotacao, $empenhado, $liquidado, $pago);
+            $rankingById[$id]['emendas'] += $total;
+            $rankingById[$id]['dotacao'] += $dotacao;
+            $rankingById[$id]['empenhado'] += $empenhado;
+            $rankingById[$id]['liquidado'] += $liquidado;
+            $rankingById[$id]['pago'] += $pago;
+        }
+        $emendasPorFuncao = $moneyRows($emendasPorFuncaoMap);
+
         $comStats = $one(
             "SELECT COUNT(*) comissoes
              FROM parl_comissoes c
@@ -1088,72 +1255,6 @@ class ApiController extends Controller {
              JOIN parl_parlamentares pp ON pp.source_key = f.source_key AND pp.sapl_id = f.sapl_id
              WHERE f.source_key = ? AND $parlWhereSql",
             array_merge([$source], $parlParams)
-        );
-
-        $materiasPorAno = $rows(
-            "SELECT m.ano label, COUNT(*) total
-             FROM parl_materias m
-             JOIN parl_parlamentares pp ON pp.source_key = m.source_key AND pp.sapl_id = m.sapl_id
-             WHERE m.source_key = ? $anoMatWhere AND m.ano IS NOT NULL AND $parlWhereSql
-             GROUP BY m.ano ORDER BY m.ano",
-            $matParams
-        );
-        $materiasPorTipo = $rows(
-            "SELECT CASE
-                        WHEN m.tipo_sigla <> '' THEN m.tipo_sigla
-                        WHEN m.descricao REGEXP '^[A-Z][A-Z0-9-]*[[:space:]]' THEN SUBSTRING_INDEX(m.descricao, ' ', 1)
-                        ELSE 'Outros'
-                    END label,
-                    COUNT(*) total
-             FROM parl_materias m
-             JOIN parl_parlamentares pp ON pp.source_key = m.source_key AND pp.sapl_id = m.sapl_id
-             WHERE m.source_key = ? $anoMatWhere AND $parlWhereSql
-             GROUP BY label ORDER BY total DESC",
-            $matParams
-        );
-        $normasPorAno = $rows(
-            "SELECT n.ano label, COUNT(*) total
-             FROM parl_normas n
-             JOIN parl_parlamentares pp ON pp.source_key = n.source_key AND pp.sapl_id = n.sapl_id
-             WHERE n.source_key = ? $anoNormWhere AND n.ano IS NOT NULL AND $parlWhereSql
-             GROUP BY n.ano ORDER BY n.ano",
-            $normParams
-        );
-        $normasPorTipo = $rows(
-            "SELECT COALESCE(NULLIF(n.tipo_sigla,''),'Outros') label, COUNT(*) total
-             FROM parl_normas n
-             JOIN parl_parlamentares pp ON pp.source_key = n.source_key AND pp.sapl_id = n.sapl_id
-             WHERE n.source_key = ? $anoNormWhere AND $parlWhereSql
-             GROUP BY label ORDER BY total DESC LIMIT 12",
-            $normParams
-        );
-        $producaoPorPartido = $rows(
-            "SELECT COALESCE(NULLIF(pp.partido_sigla,''),'Sem partido') label, COUNT(m.id) total
-             FROM parl_materias m
-             JOIN parl_parlamentares pp ON pp.source_key = m.source_key AND pp.sapl_id = m.sapl_id
-             WHERE m.source_key = ? $anoMatWhere AND $parlWhereSql
-             GROUP BY label ORDER BY total DESC",
-            $matParams
-        );
-        $producaoPorUf = $rows(
-            "SELECT COALESCE(NULLIF(pp.uf,''),'--') label, COUNT(m.id) total
-             FROM parl_materias m
-             JOIN parl_parlamentares pp ON pp.source_key = m.source_key AND pp.sapl_id = m.sapl_id
-             WHERE m.source_key = ? $anoMatWhere AND $parlWhereSql
-             GROUP BY label ORDER BY total DESC",
-            $matParams
-        );
-        $emendasPorFuncao = $rows(
-            "SELECT COALESCE(NULLIF(e.funcao,''),'Não classificado') label,
-                    SUM(e.valor_dotacao) dotacao,
-                    SUM(e.valor_empenhado) empenhado,
-                    SUM(e.valor_liquidado) liquidado,
-                    SUM(e.valor_pago) pago
-             FROM parl_emendas e
-             JOIN parl_parlamentares pp ON pp.source_key = e.source_key AND pp.sapl_id = e.parlamentar_id
-             WHERE e.source_key = ? $anoEmWhere AND $parlWhereSql
-             GROUP BY label ORDER BY empenhado DESC",
-            $emParams
         );
         $emendasPorLocalidade = $rows(
             "SELECT label,
@@ -1180,47 +1281,7 @@ class ApiController extends Controller {
              GROUP BY label ORDER BY empenhado DESC",
             array_merge($emParams, $emParams)
         );
-
-        $subYearMat = $ano ? ' AND m.ano = ?' : ' AND m.ano BETWEEN ? AND ?';
-        $subYearNorm = $ano ? ' AND ano = ?' : ' AND ano BETWEEN ? AND ?';
-        $subYearEm = $ano ? ' AND ano = ?' : ' AND ano BETWEEN ? AND ?';
-        $rankParams = array_merge(
-            [$source], $yearParams,
-            [$source], $yearParams,
-            [$source], $yearParams,
-            $parlParams
-        );
-        $ranking = $rows(
-            "SELECT pp.sapl_id id, pp.nome_parlamentar, pp.nome_completo, pp.partido_sigla, pp.uf,
-                    COALESCE(mt.total,0) materias,
-                    COALESCE(mt.primeiro_autor,0) primeiro_autor,
-                    COALESCE(nt.total,0) normas,
-                    COALESCE(et.total,0) emendas,
-                    COALESCE(et.dotacao,0) dotacao,
-                    COALESCE(et.empenhado,0) empenhado,
-                    COALESCE(et.liquidado,0) liquidado,
-                    COALESCE(et.pago,0) pago
-             FROM parl_parlamentares pp
-             LEFT JOIN (
-                 SELECT m.sapl_id, COUNT(*) total, SUM(m.primeiro_autor = 1) primeiro_autor
-                 FROM parl_materias m
-                 WHERE m.source_key = ? $subYearMat GROUP BY m.sapl_id
-             ) mt ON mt.sapl_id = pp.sapl_id
-             LEFT JOIN (
-                 SELECT sapl_id, COUNT(*) total
-                 FROM parl_normas WHERE source_key = ? $subYearNorm GROUP BY sapl_id
-             ) nt ON nt.sapl_id = pp.sapl_id
-             LEFT JOIN (
-                 SELECT parlamentar_id, COUNT(*) total,
-                        SUM(valor_dotacao) dotacao,
-                        SUM(valor_empenhado) empenhado,
-                        SUM(valor_liquidado) liquidado,
-                        SUM(valor_pago) pago
-                 FROM parl_emendas WHERE source_key = ? $subYearEm GROUP BY parlamentar_id
-             ) et ON et.parlamentar_id = pp.sapl_id
-             WHERE $parlWhereSql",
-            $rankParams
-        );
+        $ranking = array_values($rankingById);
 
         $rankMap = function (array $ranking, string $field): array {
             usort($ranking, fn($a, $b) => ((float)$b[$field] <=> (float)$a[$field]) ?: strcmp($a['nome_parlamentar'] ?: $a['nome_completo'], $b['nome_parlamentar'] ?: $b['nome_completo']));
@@ -1268,7 +1329,7 @@ class ApiController extends Controller {
         $totalMaterias = (int)($matStats['total'] ?? 0);
         $totalPrimeiro = (int)($matStats['primeiro_autor'] ?? 0);
 
-        $this->json([
+        $payload = [
             'filters' => [
                 'selected' => ['ano' => $ano ?: '', 'partido' => $partido, 'uf' => $uf, 'parlamentar' => $parlamentar ?: '', 'ativo' => $ativo],
                 'periodo'  => ['inicio' => $anoInicio, 'fim' => $anoFim],
@@ -1314,7 +1375,407 @@ class ApiController extends Controller {
                 'emendas_quantidade' => $rankMap($ranking, 'emendas'),
                 'emendas_valor'      => $rankMap($ranking, 'empenhado'),
             ],
-        ]);
+        ];
+
+        SaplCache::set($source, $dashboardCacheKey, json_encode($payload, JSON_UNESCAPED_UNICODE), 1);
+        $this->json($payload);
+    }
+
+    public function agenteGlobal(): void {
+        $this->requireAuth();
+        set_time_limit(600);
+
+        $projetoId = (int)(Auth::projetoId() ?? 0);
+        if (!$projetoId) {
+            $this->json(['error' => 'Projeto não selecionado.'], 400);
+            return;
+        }
+
+        $pModel = new Projeto();
+        if (!$pModel->canAccess($projetoId, Auth::id(), Auth::nivel(), Auth::clienteId())) {
+            $this->json(['error' => 'Acesso negado.'], 403);
+            return;
+        }
+
+        $projeto = $pModel->findComFonte($projetoId);
+        $source = $projeto['source_key'] ?? '';
+        if (!$source) {
+            $this->json(['error' => 'Fonte legislativa não configurada para este projeto.'], 400);
+            return;
+        }
+
+        $apiKey = $pModel->getApiKey($projetoId);
+        if (!$apiKey) {
+            $this->json(['error' => 'Chave OpenAI não configurada para este projeto.'], 400);
+            return;
+        }
+
+        $pergunta = trim((string)($_POST['pergunta'] ?? ''));
+        if ($pergunta === '') {
+            $this->json(['error' => 'Pergunta vazia.'], 400);
+            return;
+        }
+
+        $historico = json_decode((string)($_POST['historico'] ?? '[]'), true);
+        if (!is_array($historico)) {
+            $historico = [];
+        }
+
+        $contextSeed = $pergunta;
+        foreach (array_slice($historico, -8) as $m) {
+            $content = trim((string)($m['content'] ?? ''));
+            if ($content !== '') {
+                $contextSeed .= "\n" . $content;
+            }
+        }
+
+        $contexto = $this->buildAgenteGlobalContext($source, $projeto['nome'] ?? '', $contextSeed);
+        $system = "Você é o Sentinela Global, um agente de análise legislativa com acesso aos dados estruturados de todos os parlamentares do projeto selecionado.\n"
+            . "Responda apenas com base no contexto fornecido. Seja objetivo, claro e use português brasileiro.\n"
+            . "Nunca invente números, proposições, normas, emendas, mandatos ou conclusões que não estejam no contexto.\n"
+            . "Quando comparar parlamentares, informe o critério usado. Para maior produção legislativa, use principalmente o total de proposições e complemente com sancionadas, primeiro autor e emendas quando útil.\n"
+            . "Quando houver limitação nos dados carregados, declare a limitação de forma direta.\n\n"
+            . $contexto;
+
+        $messages = [['role' => 'system', 'content' => $system]];
+        foreach (array_slice($historico, -12) as $m) {
+            $role = $m['role'] ?? '';
+            $content = trim((string)($m['content'] ?? ''));
+            if (in_array($role, ['user', 'assistant'], true) && $content !== '') {
+                $messages[] = ['role' => $role, 'content' => $content];
+            }
+        }
+        $messages[] = ['role' => 'user', 'content' => $pergunta];
+
+        $payload = json_encode([
+            'model'       => 'gpt-4o-mini',
+            'messages'    => $messages,
+            'temperature' => 0.25,
+            'max_tokens'  => 12000,
+        ], JSON_UNESCAPED_UNICODE);
+
+        $ctx = stream_context_create(['http' => [
+            'method'  => 'POST',
+            'header'  => implode("\r\n", [
+                'Content-Type: application/json',
+                'Authorization: Bearer ' . $apiKey,
+            ]),
+            'content'       => $payload,
+            'timeout'       => 540,
+            'ignore_errors' => true,
+        ]]);
+
+        $response = @file_get_contents('https://api.openai.com/v1/chat/completions', false, $ctx);
+        if ($response === false) {
+            $this->json(['error' => 'Falha ao conectar com a OpenAI.'], 502);
+            return;
+        }
+
+        header('Content-Type: application/json; charset=utf-8');
+        echo $response;
+        exit;
+    }
+
+    private function buildAgenteGlobalContext(string $source, string $projetoNome, string $pergunta): string {
+        $db = Database::connect();
+        $rows = $this->getAgenteGlobalRows($source);
+
+        $sumInt = fn(string $field): int => array_sum(array_map(fn($r) => (int)($r[$field] ?? 0), $rows));
+        $sumFloat = fn(string $field): float => array_sum(array_map(fn($r) => (float)($r[$field] ?? 0), $rows));
+
+        $lines = [];
+        $lines[] = "Contexto global do projeto: " . ($projetoNome ?: 'projeto selecionado');
+        $lines[] = "Fonte: {$source}";
+        $lines[] = "Legislatura atual considerada neste sistema: 2023 a 2026.";
+        $lines[] = "Totais gerais: parlamentares=" . count($rows)
+            . "; proposições=" . $sumInt('proposicoes')
+            . "; proposições como primeiro autor=" . $sumInt('primeiro_autor')
+            . "; sancionadas=" . $sumInt('sancionadas')
+            . "; emendas=" . $sumInt('emendas')
+            . "; valor empenhado=" . $this->agenteGlobalMoney($sumFloat('valor_empenhado'))
+            . "; valor liquidado=" . $this->agenteGlobalMoney($sumFloat('valor_liquidado'))
+            . "; valor pago=" . $this->agenteGlobalMoney($sumFloat('valor_pago')) . ".";
+        $lines[] = "Totais 2023-2026: proposições=" . $sumInt('proposicoes_2023_2026')
+            . "; proposições como primeiro autor=" . $sumInt('primeiro_autor_2023_2026')
+            . "; sancionadas=" . $sumInt('sancionadas_2023_2026')
+            . "; emendas=" . $sumInt('emendas_2023_2026')
+            . "; valor empenhado=" . $this->agenteGlobalMoney($sumFloat('valor_empenhado_2023_2026'))
+            . "; valor liquidado=" . $this->agenteGlobalMoney($sumFloat('valor_liquidado_2023_2026'))
+            . "; valor pago=" . $this->agenteGlobalMoney($sumFloat('valor_pago_2023_2026')) . ".";
+        $lines[] = "";
+
+        $citados = $this->agenteGlobalFindMentioned($rows, $pergunta);
+        if ($citados) {
+            $lines[] = "Detalhamento prioritário dos parlamentares citados:";
+            foreach ($citados as $r) {
+                $this->appendAgenteGlobalParlamentarDetails($lines, $db, $source, (int)$r['sapl_id'], $this->agenteGlobalLabel($r));
+            }
+            $lines[] = "";
+        }
+
+        $this->appendAgenteGlobalRank($lines, $rows, 'Ranking por proposições', 'proposicoes');
+        $this->appendAgenteGlobalRank($lines, $rows, 'Ranking por proposições 2023-2026', 'proposicoes_2023_2026');
+        $this->appendAgenteGlobalRank($lines, $rows, 'Ranking por sancionadas/normas', 'sancionadas');
+        $this->appendAgenteGlobalRank($lines, $rows, 'Ranking por emendas', 'emendas');
+        $this->appendAgenteGlobalRank($lines, $rows, 'Ranking por valor empenhado', 'valor_empenhado', true);
+        $this->appendAgenteGlobalRank($lines, $rows, 'Ranking por valor pago', 'valor_pago', true);
+        $this->appendAgenteGlobalGroups($lines, $rows);
+
+        if ($this->agenteGlobalNeedsAllRows($pergunta)) {
+            $lines[] = "Resumo por parlamentar:";
+            foreach ($rows as $r) {
+                $lines[] = "- " . $this->agenteGlobalLabel($r)
+                    . " | id={$r['sapl_id']}"
+                    . " | ativo=" . ((int)$r['ativo'] ? 'sim' : 'não')
+                    . " | proposições=" . (int)$r['proposicoes']
+                    . " | proposições_2023_2026=" . (int)$r['proposicoes_2023_2026']
+                    . " | primeiro_autor=" . (int)$r['primeiro_autor']
+                    . " | sancionadas=" . (int)$r['sancionadas']
+                    . " | emendas=" . (int)$r['emendas']
+                    . " | valor_empenhado=" . $this->agenteGlobalMoney((float)$r['valor_empenhado'])
+                    . " | valor_pago=" . $this->agenteGlobalMoney((float)$r['valor_pago'])
+                    . " | comissões=" . (int)$r['comissoes']
+                    . " | frentes=" . (int)$r['frentes'];
+            }
+            $lines[] = "";
+        }
+
+        return implode("\n", $lines);
+    }
+
+    private function getAgenteGlobalRows(string $source): array {
+        $db = Database::connect();
+        $sql = "
+            SELECT pp.sapl_id, pp.nome_completo, pp.nome_parlamentar, pp.partido_sigla, pp.uf, pp.ativo,
+                   COALESCE(pm.total, 0) AS proposicoes,
+                   COALESCE(pm.primeiro_autor, 0) AS primeiro_autor,
+                   COALESCE(pm.total_2023_2026, 0) AS proposicoes_2023_2026,
+                   COALESCE(pm.primeiro_autor_2023_2026, 0) AS primeiro_autor_2023_2026,
+                   COALESCE(pn.total, 0) AS sancionadas,
+                   COALESCE(pn.total_2023_2026, 0) AS sancionadas_2023_2026,
+                   COALESCE(pe.total, 0) AS emendas,
+                   COALESCE(pe.total_2023_2026, 0) AS emendas_2023_2026,
+                   COALESCE(pe.valor_dotacao, 0) AS valor_dotacao,
+                   COALESCE(pe.valor_empenhado, 0) AS valor_empenhado,
+                   COALESCE(pe.valor_liquidado, 0) AS valor_liquidado,
+                   COALESCE(pe.valor_pago, 0) AS valor_pago,
+                   COALESCE(pe.valor_empenhado_2023_2026, 0) AS valor_empenhado_2023_2026,
+                   COALESCE(pe.valor_liquidado_2023_2026, 0) AS valor_liquidado_2023_2026,
+                   COALESCE(pe.valor_pago_2023_2026, 0) AS valor_pago_2023_2026,
+                   COALESCE(pc.total, 0) AS comissoes,
+                   COALESCE(pf.total, 0) AS frentes
+            FROM parl_parlamentares pp
+            LEFT JOIN (
+                SELECT source_key, sapl_id, COUNT(*) AS total,
+                       SUM(CASE WHEN primeiro_autor = 1 THEN 1 ELSE 0 END) AS primeiro_autor,
+                       SUM(CASE WHEN ano BETWEEN 2023 AND 2026 THEN 1 ELSE 0 END) AS total_2023_2026,
+                       SUM(CASE WHEN ano BETWEEN 2023 AND 2026 AND primeiro_autor = 1 THEN 1 ELSE 0 END) AS primeiro_autor_2023_2026
+                FROM parl_materias
+                WHERE source_key = ?
+                GROUP BY source_key, sapl_id
+            ) pm ON pm.source_key = pp.source_key AND pm.sapl_id = pp.sapl_id
+            LEFT JOIN (
+                SELECT source_key, sapl_id, COUNT(*) AS total,
+                       SUM(CASE WHEN ano BETWEEN 2023 AND 2026 THEN 1 ELSE 0 END) AS total_2023_2026
+                FROM parl_normas
+                WHERE source_key = ?
+                GROUP BY source_key, sapl_id
+            ) pn ON pn.source_key = pp.source_key AND pn.sapl_id = pp.sapl_id
+            LEFT JOIN (
+                SELECT source_key, parlamentar_id AS sapl_id, COUNT(*) AS total,
+                       SUM(CASE WHEN ano BETWEEN 2023 AND 2026 THEN 1 ELSE 0 END) AS total_2023_2026,
+                       SUM(valor_dotacao) AS valor_dotacao,
+                       SUM(valor_empenhado) AS valor_empenhado,
+                       SUM(valor_liquidado) AS valor_liquidado,
+                       SUM(valor_pago) AS valor_pago,
+                       SUM(CASE WHEN ano BETWEEN 2023 AND 2026 THEN valor_empenhado ELSE 0 END) AS valor_empenhado_2023_2026,
+                       SUM(CASE WHEN ano BETWEEN 2023 AND 2026 THEN valor_liquidado ELSE 0 END) AS valor_liquidado_2023_2026,
+                       SUM(CASE WHEN ano BETWEEN 2023 AND 2026 THEN valor_pago ELSE 0 END) AS valor_pago_2023_2026
+                FROM parl_emendas
+                WHERE source_key = ?
+                GROUP BY source_key, parlamentar_id
+            ) pe ON pe.source_key = pp.source_key AND pe.sapl_id = pp.sapl_id
+            LEFT JOIN (
+                SELECT source_key, sapl_id, COUNT(*) AS total
+                FROM parl_comissoes
+                WHERE source_key = ?
+                GROUP BY source_key, sapl_id
+            ) pc ON pc.source_key = pp.source_key AND pc.sapl_id = pp.sapl_id
+            LEFT JOIN (
+                SELECT source_key, sapl_id, COUNT(*) AS total
+                FROM parl_frentes
+                WHERE source_key = ?
+                GROUP BY source_key, sapl_id
+            ) pf ON pf.source_key = pp.source_key AND pf.sapl_id = pp.sapl_id
+            WHERE pp.source_key = ?
+            ORDER BY pp.nome_parlamentar
+        ";
+        $st = $db->prepare($sql);
+        $st->execute([$source, $source, $source, $source, $source, $source]);
+        return $st->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    private function appendAgenteGlobalRank(array &$lines, array $rows, string $title, string $field, bool $money = false): void {
+        usort($rows, fn($a, $b) => ((float)($b[$field] ?? 0) <=> (float)($a[$field] ?? 0)) ?: strcmp((string)$a['nome_parlamentar'], (string)$b['nome_parlamentar']));
+        $lines[] = $title . ':';
+        $i = 0;
+        foreach ($rows as $r) {
+            $value = (float)($r[$field] ?? 0);
+            if ($value <= 0) continue;
+            $lines[] = (++$i) . ". " . $this->agenteGlobalLabel($r) . " = " . ($money ? $this->agenteGlobalMoney($value) : (string)(int)$value);
+            if ($i >= 25) break;
+        }
+        $lines[] = "";
+    }
+
+    private function appendAgenteGlobalGroups(array &$lines, array $rows): void {
+        $groups = [
+            'partido' => [],
+            'uf' => [],
+        ];
+        foreach ($rows as $r) {
+            $partido = trim((string)($r['partido_sigla'] ?? '')) ?: 'Sem partido';
+            $uf = trim((string)($r['uf'] ?? '')) ?: '--';
+            foreach ([['partido', $partido], ['uf', $uf]] as [$kind, $key]) {
+                if (!isset($groups[$kind][$key])) {
+                    $groups[$kind][$key] = ['parlamentares' => 0, 'proposicoes' => 0, 'sancionadas' => 0, 'emendas' => 0, 'empenhado' => 0.0];
+                }
+                $groups[$kind][$key]['parlamentares']++;
+                $groups[$kind][$key]['proposicoes'] += (int)$r['proposicoes'];
+                $groups[$kind][$key]['sancionadas'] += (int)$r['sancionadas'];
+                $groups[$kind][$key]['emendas'] += (int)$r['emendas'];
+                $groups[$kind][$key]['empenhado'] += (float)$r['valor_empenhado'];
+            }
+        }
+
+        foreach (['partido' => 'Resumo por partido', 'uf' => 'Resumo por UF'] as $kind => $title) {
+            uasort($groups[$kind], fn($a, $b) => $b['proposicoes'] <=> $a['proposicoes']);
+            $lines[] = $title . ':';
+            $i = 0;
+            foreach ($groups[$kind] as $key => $g) {
+                $lines[] = "- {$key}: parlamentares={$g['parlamentares']}; proposições={$g['proposicoes']}; sancionadas={$g['sancionadas']}; emendas={$g['emendas']}; empenhado=" . $this->agenteGlobalMoney((float)$g['empenhado']);
+                if (++$i >= 30) break;
+            }
+            $lines[] = "";
+        }
+    }
+
+    private function appendAgenteGlobalParlamentarDetails(array &$lines, PDO $db, string $source, int $saplId, string $label): void {
+        $lines[] = "Parlamentar: {$label} (id={$saplId})";
+
+        $queries = [
+            'Proposições recentes/detalhadas' => [
+                "SELECT descricao, tipo_sigla, numero, ano, ementa, primeiro_autor
+                 FROM parl_materias
+                 WHERE source_key=? AND sapl_id=?
+                 ORDER BY ano DESC, id DESC
+                 LIMIT 25",
+                fn($r) => "- " . trim(($r['tipo_sigla'] ?: 'MAT') . " {$r['numero']}/{$r['ano']}") . "; primeiro_autor=" . ((int)$r['primeiro_autor'] ? 'sim' : 'não') . "; ementa=" . trim((string)$r['ementa']),
+            ],
+            'Sancionadas/normas recentes' => [
+                "SELECT tipo_sigla, numero, ano, ementa
+                 FROM parl_normas
+                 WHERE source_key=? AND sapl_id=?
+                 ORDER BY ano DESC, id DESC
+                 LIMIT 20",
+                fn($r) => "- " . trim(($r['tipo_sigla'] ?: 'NORMA') . " {$r['numero']}/{$r['ano']}") . "; ementa=" . trim((string)$r['ementa']),
+            ],
+            'Emendas recentes' => [
+                "SELECT tipo, numero, ano, localidade, funcao, valor_empenhado, valor_liquidado, valor_pago
+                 FROM parl_emendas
+                 WHERE source_key=? AND parlamentar_id=?
+                 ORDER BY ano DESC, id DESC
+                 LIMIT 25",
+                fn($r) => "- " . trim("{$r['tipo']} {$r['numero']}/{$r['ano']}") . "; localidade=" . ($r['localidade'] ?: 'não informada') . "; função=" . ($r['funcao'] ?: 'não informada') . "; empenhado=" . $this->agenteGlobalMoney((float)$r['valor_empenhado']) . "; liquidado=" . $this->agenteGlobalMoney((float)$r['valor_liquidado']) . "; pago=" . $this->agenteGlobalMoney((float)$r['valor_pago']),
+            ],
+            'Comissões' => [
+                "SELECT comissao_str, data_inicio, data_fim, titular
+                 FROM parl_comissoes
+                 WHERE source_key=? AND sapl_id=?
+                 ORDER BY data_inicio DESC
+                 LIMIT 20",
+                fn($r) => "- " . trim((string)$r['comissao_str']) . "; início={$r['data_inicio']}; fim={$r['data_fim']}; titular=" . ((int)$r['titular'] ? 'sim' : 'não'),
+            ],
+            'Frentes' => [
+                "SELECT frente_nome, cargo, ativa
+                 FROM parl_frentes
+                 WHERE source_key=? AND sapl_id=?
+                 ORDER BY ativa DESC, frente_nome
+                 LIMIT 20",
+                fn($r) => "- " . trim((string)$r['frente_nome']) . "; cargo=" . ($r['cargo'] ?: 'não informado') . "; ativa=" . ((int)$r['ativa'] ? 'sim' : 'não'),
+            ],
+        ];
+
+        foreach ($queries as $title => [$sql, $format]) {
+            $st = $db->prepare($sql);
+            $st->execute([$source, $saplId]);
+            $items = $st->fetchAll(PDO::FETCH_ASSOC);
+            if (!$items) continue;
+            $lines[] = $title . ':';
+            foreach ($items as $r) {
+                $lines[] = $format($r);
+            }
+        }
+        $lines[] = "";
+    }
+
+    private function agenteGlobalLabel(array $r): string {
+        $nome = $r['nome_parlamentar'] ?: ($r['nome_completo'] ?: ('ID ' . $r['sapl_id']));
+        $partido = trim((string)($r['partido_sigla'] ?? ''));
+        $uf = trim((string)($r['uf'] ?? ''));
+        $suffix = trim($partido . ($uf ? '/' . $uf : ''));
+        return $suffix ? "{$nome} ({$suffix})" : $nome;
+    }
+
+    private function agenteGlobalMoney(float $value): string {
+        return 'R$ ' . number_format($value, 2, ',', '.');
+    }
+
+    private function agenteGlobalNormalize(string $text): string {
+        $converted = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $text);
+        if ($converted !== false) {
+            $text = $converted;
+        }
+        $text = strtolower($text);
+        $text = preg_replace('/[^a-z0-9]+/', ' ', $text) ?? '';
+        return trim(preg_replace('/\s+/', ' ', $text) ?? '');
+    }
+
+    private function agenteGlobalFindMentioned(array $rows, string $pergunta): array {
+        $q = ' ' . $this->agenteGlobalNormalize($pergunta) . ' ';
+        $matches = [];
+        foreach ($rows as $r) {
+            $names = array_filter([$r['nome_parlamentar'] ?? '', $r['nome_completo'] ?? '']);
+            foreach ($names as $name) {
+                $norm = $this->agenteGlobalNormalize($name);
+                if ($norm && str_contains($q, ' ' . $norm . ' ')) {
+                    $matches[(int)$r['sapl_id']] = $r;
+                    continue 2;
+                }
+                $parts = array_values(array_filter(explode(' ', $norm), fn($p) => strlen($p) >= 5));
+                $hits = 0;
+                foreach ($parts as $p) {
+                    if (str_contains($q, ' ' . $p . ' ')) {
+                        $hits++;
+                    }
+                }
+                if ($hits >= 2 || ($hits === 1 && count($parts) === 1)) {
+                    $matches[(int)$r['sapl_id']] = $r;
+                    continue 2;
+                }
+            }
+        }
+        return array_slice(array_values($matches), 0, 6);
+    }
+
+    private function agenteGlobalNeedsAllRows(string $pergunta): bool {
+        $q = ' ' . $this->agenteGlobalNormalize($pergunta) . ' ';
+        foreach (['todos os parlamentares', 'todas os parlamentares', 'listar parlamentares', 'lista de parlamentares', 'compare todos', 'comparar todos'] as $term) {
+            if (str_contains($q, ' ' . $term . ' ')) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public function sincronizar(): void {

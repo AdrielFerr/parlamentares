@@ -231,7 +231,9 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS parl_parlamentares (
     sincronizado_em  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uq (source_key, sapl_id),
     INDEX idx_source (source_key),
-    INDEX idx_partido (source_key, partido_sigla)
+    INDEX idx_partido (source_key, partido_sigla),
+    INDEX idx_source_ativo_sapl (source_key, ativo, sapl_id),
+    INDEX idx_source_uf_sapl (source_key, uf, sapl_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
 $pdo->exec("CREATE TABLE IF NOT EXISTS parl_legislaturas (
@@ -294,7 +296,8 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS parl_comissoes (
     data_fim      DATE NULL,
     titular       TINYINT(1)   NOT NULL DEFAULT 0,
     atualizado_em DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_parl (source_key, sapl_id)
+    INDEX idx_parl (source_key, sapl_id),
+    INDEX idx_dash_source_sapl_data (source_key, sapl_id, data_inicio)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
 $pdo->exec("CREATE TABLE IF NOT EXISTS parl_materias (
@@ -312,7 +315,9 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS parl_materias (
     primeiro_autor    TINYINT(1)   NOT NULL DEFAULT 1,
     atualizado_em     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_parl (source_key, sapl_id),
-    INDEX idx_ano  (source_key, ano)
+    INDEX idx_ano  (source_key, ano),
+    INDEX idx_dash_source_sapl_ano (source_key, sapl_id, ano),
+    INDEX idx_dash_source_ano_sapl_tipo (source_key, ano, sapl_id, tipo_sigla, primeiro_autor)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
 $pdo->exec("CREATE TABLE IF NOT EXISTS parl_normas (
@@ -329,7 +334,9 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS parl_normas (
     descricao     VARCHAR(600) NOT NULL DEFAULT '',
     atualizado_em DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_parl (source_key, sapl_id),
-    INDEX idx_ano  (source_key, ano)
+    INDEX idx_ano  (source_key, ano),
+    INDEX idx_dash_source_sapl_ano (source_key, sapl_id, ano),
+    INDEX idx_dash_source_ano_sapl_tipo (source_key, ano, sapl_id, tipo_sigla)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
 $pdo->exec("CREATE TABLE IF NOT EXISTS parl_relatorias (
@@ -342,7 +349,8 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS parl_relatorias (
     data_designacao  DATE NULL,
     data_destituicao DATE NULL,
     atualizado_em    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_parl (source_key, sapl_id)
+    INDEX idx_parl (source_key, sapl_id),
+    INDEX idx_dash_source_sapl_data (source_key, sapl_id, data_designacao)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
 $pdo->exec("CREATE TABLE IF NOT EXISTS parl_frentes (
@@ -443,7 +451,10 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS parl_emendas (
     valor_pago       DECIMAL(18,2) NOT NULL DEFAULT 0.00,
     descricao        VARCHAR(600)  NOT NULL DEFAULT '',
     atualizado_em    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_parl_ano (source_key, parlamentar_id, ano)
+    INDEX idx_parl_ano (source_key, parlamentar_id, ano),
+    INDEX idx_dash_source_ano_parl (source_key, ano, parlamentar_id),
+    INDEX idx_dash_source_parl_ano_cod (source_key, parlamentar_id, ano, emenda_cod),
+    INDEX idx_dash_source_cod_ano_parl (source_key, emenda_cod, ano, parlamentar_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
 echo "[migrate] Tabela parl_emendas criada.\n";
@@ -493,6 +504,18 @@ $migracoes2 = [
     "ALTER TABLE parl_emendas ADD COLUMN IF NOT EXISTS acao            VARCHAR(300) NOT NULL DEFAULT '' AFTER orgao",
     "ALTER TABLE parl_emendas ADD COLUMN IF NOT EXISTS programa        VARCHAR(300) NOT NULL DEFAULT '' AFTER acao",
     "ALTER TABLE parl_emendas ADD COLUMN IF NOT EXISTS valor_liquidado DECIMAL(18,2) NOT NULL DEFAULT 0.00 AFTER valor_empenhado",
+    // Índices para o dashboard global de produção legislativa
+    "ALTER TABLE parl_parlamentares ADD INDEX IF NOT EXISTS idx_source_ativo_sapl (source_key, ativo, sapl_id)",
+    "ALTER TABLE parl_parlamentares ADD INDEX IF NOT EXISTS idx_source_uf_sapl (source_key, uf, sapl_id)",
+    "ALTER TABLE parl_materias ADD INDEX IF NOT EXISTS idx_dash_source_sapl_ano (source_key, sapl_id, ano)",
+    "ALTER TABLE parl_materias ADD INDEX IF NOT EXISTS idx_dash_source_ano_sapl_tipo (source_key, ano, sapl_id, tipo_sigla, primeiro_autor)",
+    "ALTER TABLE parl_normas ADD INDEX IF NOT EXISTS idx_dash_source_sapl_ano (source_key, sapl_id, ano)",
+    "ALTER TABLE parl_normas ADD INDEX IF NOT EXISTS idx_dash_source_ano_sapl_tipo (source_key, ano, sapl_id, tipo_sigla)",
+    "ALTER TABLE parl_emendas ADD INDEX IF NOT EXISTS idx_dash_source_ano_parl (source_key, ano, parlamentar_id)",
+    "ALTER TABLE parl_emendas ADD INDEX IF NOT EXISTS idx_dash_source_parl_ano_cod (source_key, parlamentar_id, ano, emenda_cod)",
+    "ALTER TABLE parl_emendas ADD INDEX IF NOT EXISTS idx_dash_source_cod_ano_parl (source_key, emenda_cod, ano, parlamentar_id)",
+    "ALTER TABLE parl_comissoes ADD INDEX IF NOT EXISTS idx_dash_source_sapl_data (source_key, sapl_id, data_inicio)",
+    "ALTER TABLE parl_relatorias ADD INDEX IF NOT EXISTS idx_dash_source_sapl_data (source_key, sapl_id, data_designacao)",
     // Usuários — tokens de redefinição de senha
     "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS reset_token      VARCHAR(128) NULL DEFAULT NULL",
     "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS reset_expires_at DATETIME NULL DEFAULT NULL",
@@ -530,8 +553,13 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS parl_emendas_municipios (
     valor_pago      DECIMAL(18,2) NOT NULL DEFAULT 0.00,
     atualizado_em   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_cod (source_key, emenda_cod),
-    INDEX idx_ano (source_key, ano)
+    INDEX idx_ano (source_key, ano),
+    INDEX idx_dash_source_cod_ano (source_key, emenda_cod, ano)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+try {
+    $pdo->exec("ALTER TABLE parl_emendas_municipios ADD INDEX IF NOT EXISTS idx_dash_source_cod_ano (source_key, emenda_cod, ano)");
+} catch (PDOException $e) { /* já existe */ }
 
 echo "[migrate] Tabela parl_emendas_municipios criada.\n";
 

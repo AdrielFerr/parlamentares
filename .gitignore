@@ -15,3 +15,4 @@ database/seed_*teste*.php
 AUDITORIA.md
 SUMMARY.txt
 test_api.php
+.dev-router.php

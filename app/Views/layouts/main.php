@@ -23,6 +23,7 @@ $_cssVars = Configuracao::getCssVars($_clienteIdForBranding);
 $_logoUrl = Configuracao::logoUrl($_clienteIdForBranding);
 if (!$_logoUrl) $_logoUrl = BASE_PATH . '/public/assets/keek-verde.png';
 $_requestPath = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?: '';
+$_showGlobalAi = $_projetoId && str_contains($_requestPath, BASE_PATH . '/parlamentares');
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -148,6 +149,32 @@ body.sidebar-collapsed .sidebar-footer{display:none}
 body.sidebar-collapsed .sidebar-toggle i{transform:rotate(180deg)}
 body.sidebar-collapsed .sidebar-logo img{max-width:34px!important;max-height:34px!important}
 
+/* ── SENTINELA GLOBAL ── */
+.global-ai{position:fixed;right:22px;bottom:22px;z-index:850}
+.global-ai-toggle{width:58px;height:58px;border:none;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:27px;box-shadow:0 14px 34px rgba(22,163,74,.34);transition:transform .16s,background .16s,box-shadow .16s}
+.global-ai-toggle:hover{background:var(--accent-dark);transform:translateY(-2px);box-shadow:0 18px 40px rgba(22,163,74,.42)}
+.global-ai-panel{position:fixed;right:22px;bottom:92px;width:min(390px,calc(100vw - 28px));height:min(620px,calc(100vh - 118px));background:#fff;border:1px solid var(--border);border-radius:14px;box-shadow:0 24px 70px rgba(17,24,39,.22);display:none;overflow:hidden}
+.global-ai.open .global-ai-panel{display:flex;flex-direction:column}
+.global-ai-head{height:62px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,#fff,#f9fafb)}
+.global-ai-title{display:flex;align-items:center;gap:10px;min-width:0}
+.global-ai-mark{width:36px;height:36px;border-radius:10px;background:var(--accent-light);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0}
+.global-ai-name{font-size:14px;font-weight:800;color:var(--text);line-height:1.1}
+.global-ai-sub{font-size:11px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.global-ai-actions{display:flex;align-items:center;gap:4px;flex-shrink:0}
+.global-ai-icon{width:30px;height:30px;border:none;border-radius:8px;background:transparent;color:#6b7280;font-size:17px;display:flex;align-items:center;justify-content:center}
+.global-ai-icon:hover{background:#f3f4f6;color:var(--text)}
+.global-ai-body{flex:1;overflow-y:auto;padding:14px;background:#fbfbfb;display:flex;flex-direction:column;gap:10px}
+.global-ai-msg{max-width:86%;padding:10px 12px;border-radius:12px;font-size:13px;line-height:1.45;white-space:pre-wrap;word-break:break-word}
+.global-ai-msg.user{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:4px}
+.global-ai-msg.assistant{align-self:flex-start;background:#fff;color:var(--text);border:1px solid var(--border);border-bottom-left-radius:4px}
+.global-ai-msg.loading{color:var(--muted);font-style:italic}
+.global-ai-foot{padding:10px;border-top:1px solid var(--border);background:#fff}
+.global-ai-form{display:flex;align-items:flex-end;gap:8px}
+.global-ai-input{resize:none;min-height:42px;max-height:110px;margin:0!important;border-radius:10px!important;background:#fafafa!important;font-size:13px!important;line-height:1.35!important}
+.global-ai-send{width:42px;height:42px;border:none;border-radius:10px;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:19px;flex-shrink:0}
+.global-ai-send:hover{background:var(--accent-dark)}
+.global-ai-send:disabled{opacity:.55;cursor:not-allowed}
+
 /* ── RESPONSIVE ── */
 .mob-ham-btn{display:none;align-items:center;justify-content:center;width:36px;height:36px;border-radius:8px;background:none;border:1.5px solid var(--border);color:var(--text);font-size:18px;cursor:pointer;flex-shrink:0;transition:background .15s}
 .mob-ham-btn:hover{background:#f3f4f6}
@@ -172,6 +199,8 @@ body.sidebar-collapsed .sidebar-logo img{max-width:34px!important;max-height:34p
   .cfg-grid{grid-template-columns:1fr!important}
   .mem-table th:nth-child(2),.mem-table td:nth-child(2){display:none}
   .tb-dropdown{min-width:190px}
+  .global-ai{right:14px;bottom:14px}
+  .global-ai-panel{right:14px;bottom:82px;height:min(560px,calc(100vh - 98px))}
 }
 </style>
 </head>
@@ -209,13 +238,13 @@ body.sidebar-collapsed .sidebar-logo img{max-width:34px!important;max-height:34p
     <?php endif; ?>
 
     <a href="<?= BASE_PATH ?>/parlamentares#dashboard-global" data-nav="producao-legislativa" class="nav-item">
-      <span class="nav-icon"><i class="ph ph-chart-pie-slice"></i></span> Produção legislativa
+      <span class="nav-icon"><i class="ph ph-chart-pie-slice"></i></span> Produção Legislativa
     </a>
     <a href="<?= BASE_PATH ?>/parlamentares" data-nav="parlamentares" class="nav-item <?= str_contains($_requestPath, BASE_PATH . '/parlamentares') ? 'active' : '' ?>">
       <span class="nav-icon"><i class="ph ph-buildings"></i></span> Parlamentares
     </a>
     <a href="<?= BASE_PATH ?>/sentinela" class="nav-item <?= str_contains($_requestPath, BASE_PATH . '/sentinela') ? 'active' : '' ?>">
-      <span class="nav-icon"><i class="ph ph-eye"></i></span> Sentinela IA
+      <span class="nav-icon"><i class="ph ph-eye"></i></span> Agregador de Pesquisas
     </a>
 
   </nav>
@@ -281,6 +310,38 @@ body.sidebar-collapsed .sidebar-logo img{max-width:34px!important;max-height:34p
     <?= $content ?>
   </main>
 </div>
+
+<?php if ($_showGlobalAi): ?>
+<div class="global-ai" id="globalAi">
+  <button class="global-ai-toggle" type="button" onclick="toggleGlobalAi()" aria-label="Abrir Sentinela Global" title="Sentinela Global">
+    <i class="ph ph-sparkle"></i>
+  </button>
+  <section class="global-ai-panel" aria-label="Sentinela Global">
+    <div class="global-ai-head">
+      <div class="global-ai-title">
+        <div class="global-ai-mark"><i class="ph ph-eye"></i></div>
+        <div style="min-width:0">
+          <div class="global-ai-name">Sentinela Global</div>
+          <div class="global-ai-sub">Todos os parlamentares do projeto</div>
+        </div>
+      </div>
+      <div class="global-ai-actions">
+        <button class="global-ai-icon" type="button" onclick="clearGlobalAi()" title="Limpar conversa" aria-label="Limpar conversa"><i class="ph ph-trash"></i></button>
+        <button class="global-ai-icon" type="button" onclick="toggleGlobalAi(false)" title="Fechar" aria-label="Fechar"><i class="ph ph-x"></i></button>
+      </div>
+    </div>
+    <div class="global-ai-body" id="globalAiMessages">
+      <div class="global-ai-msg assistant">Pergunte sobre rankings, comparações entre parlamentares, proposições, emendas, comissões e produção legislativa do projeto.</div>
+    </div>
+    <div class="global-ai-foot">
+      <form class="global-ai-form" onsubmit="sendGlobalAi(event)">
+        <textarea class="global-ai-input" id="globalAiInput" rows="1" placeholder="Pergunte ao Sentinela Global..."></textarea>
+        <button class="global-ai-send" id="globalAiSend" type="submit" title="Enviar" aria-label="Enviar"><i class="ph ph-paper-plane-tilt"></i></button>
+      </form>
+    </div>
+  </section>
+</div>
+<?php endif; ?>
 
 <?php if ($userNivel === 1):
   $csrf = Auth::csrfToken();
@@ -391,6 +452,147 @@ function closeSidebar(){
   document.getElementById('appSidebar').classList.remove('open');
   document.getElementById('mobOverlay').classList.remove('open');
 }
+
+<?php if ($_showGlobalAi): ?>
+const GLOBAL_AI_CFG = {
+  basePath: '<?= BASE_PATH ?>',
+  projetoId: <?= (int)$_projetoId ?>,
+  csrf: '<?= Auth::csrfToken() ?>'
+};
+let globalAiHistory = [];
+let globalAiLoaded = false;
+let globalAiBusy = false;
+
+function globalAiUrl(path){
+  return (GLOBAL_AI_CFG.basePath || '') + path;
+}
+
+function toggleGlobalAi(force){
+  const root = document.getElementById('globalAi');
+  if(!root) return;
+  const open = typeof force === 'boolean' ? force : !root.classList.contains('open');
+  root.classList.toggle('open', open);
+  if(open){
+    loadGlobalAiHistory();
+    setTimeout(() => document.getElementById('globalAiInput')?.focus(), 60);
+  }
+}
+
+function globalAiAddMsg(role, content, extraClass){
+  const box = document.getElementById('globalAiMessages');
+  if(!box) return null;
+  const el = document.createElement('div');
+  el.className = 'global-ai-msg ' + role + (extraClass ? ' ' + extraClass : '');
+  el.textContent = content;
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+  return el;
+}
+
+async function loadGlobalAiHistory(){
+  if(globalAiLoaded) return;
+  globalAiLoaded = true;
+  try {
+    const res = await fetch(globalAiUrl('/api/agente-historico?contexto=global&contexto_id=' + encodeURIComponent(GLOBAL_AI_CFG.projetoId)));
+    const json = await res.json();
+    globalAiHistory = Array.isArray(json.historico) ? json.historico : [];
+    const box = document.getElementById('globalAiMessages');
+    if(box && globalAiHistory.length){
+      box.innerHTML = '';
+      globalAiHistory.forEach(m => {
+        if(m && (m.role === 'user' || m.role === 'assistant')) globalAiAddMsg(m.role, m.content || '');
+      });
+    }
+  } catch(e) {
+    console.warn('Histórico global indisponível', e);
+  }
+}
+
+async function saveGlobalAiHistory(){
+  try {
+    await fetch(globalAiUrl('/api/agente-historico?contexto=global&contexto_id=' + encodeURIComponent(GLOBAL_AI_CFG.projetoId)), {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({historico: globalAiHistory.slice(-40)})
+    });
+  } catch(e) {
+    console.warn('Não foi possível salvar o histórico global', e);
+  }
+}
+
+async function clearGlobalAi(){
+  globalAiHistory = [];
+  const box = document.getElementById('globalAiMessages');
+  if(box){
+    box.innerHTML = '';
+    globalAiAddMsg('assistant', 'Pergunte sobre rankings, comparações entre parlamentares, proposições, emendas, comissões e produção legislativa do projeto.');
+  }
+  try {
+    await fetch(globalAiUrl('/api/agente-historico?contexto=global&contexto_id=' + encodeURIComponent(GLOBAL_AI_CFG.projetoId)), {method:'DELETE'});
+  } catch(e) {}
+}
+
+async function sendGlobalAi(event){
+  event.preventDefault();
+  if(globalAiBusy) return;
+  const input = document.getElementById('globalAiInput');
+  const btn = document.getElementById('globalAiSend');
+  const pergunta = (input?.value || '').trim();
+  if(!pergunta) return;
+
+  globalAiBusy = true;
+  if(btn) btn.disabled = true;
+  input.value = '';
+  globalAiAddMsg('user', pergunta);
+  globalAiHistory.push({role:'user', content:pergunta});
+  const loading = globalAiAddMsg('assistant', 'Analisando dados globais...', 'loading');
+
+  try {
+    const fd = new FormData();
+    fd.append('_token', GLOBAL_AI_CFG.csrf);
+    fd.append('pergunta', pergunta);
+    fd.append('historico', JSON.stringify(globalAiHistory.slice(-12)));
+    const res = await fetch(globalAiUrl('/api/agente-global'), {method:'POST', body:fd});
+    const json = await res.json();
+    const resposta = json?.choices?.[0]?.message?.content || json?.error || 'Não foi possível gerar resposta.';
+    if(loading){
+      loading.classList.remove('loading');
+      loading.textContent = resposta;
+    } else {
+      globalAiAddMsg('assistant', resposta);
+    }
+    globalAiHistory.push({role:'assistant', content:resposta});
+    await saveGlobalAiHistory();
+  } catch(e) {
+    const msg = 'Erro ao consultar o Sentinela Global.';
+    if(loading){
+      loading.classList.remove('loading');
+      loading.textContent = msg;
+    } else {
+      globalAiAddMsg('assistant', msg);
+    }
+  } finally {
+    globalAiBusy = false;
+    if(btn) btn.disabled = false;
+    setTimeout(() => input?.focus(), 40);
+  }
+}
+
+(function(){
+  const input = document.getElementById('globalAiInput');
+  if(!input) return;
+  input.addEventListener('input', function(){
+    this.style.height = 'auto';
+    this.style.height = Math.min(this.scrollHeight, 110) + 'px';
+  });
+  input.addEventListener('keydown', function(e){
+    if(e.key === 'Enter' && !e.shiftKey){
+      e.preventDefault();
+      sendGlobalAi(e);
+    }
+  });
+})();
+<?php endif; ?>
 
 <?php if ($userNivel === 1): ?>
 function openCfgModal(){
