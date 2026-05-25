@@ -563,4 +563,29 @@ try {
 
 echo "[migrate] Tabela parl_emendas_municipios criada.\n";
 
+$pdo->exec("CREATE TABLE IF NOT EXISTS parl_pac (
+    id               INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    parlamentar_id   INT UNSIGNED  NOT NULL,
+    ano              SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    orgao            VARCHAR(300)  NOT NULL DEFAULT '',
+    acao             VARCHAR(300)  NOT NULL DEFAULT '',
+    localizador      VARCHAR(300)  NOT NULL DEFAULT '',
+    municipio        VARCHAR(300)  NOT NULL DEFAULT '',
+    uf               VARCHAR(5)    NOT NULL DEFAULT '',
+    programa         VARCHAR(300)  NOT NULL DEFAULT '',
+    funcao           VARCHAR(200)  NOT NULL DEFAULT '',
+    subfuncao        VARCHAR(200)  NOT NULL DEFAULT '',
+    dotacao_inicial  DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+    dotacao_atual    DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+    empenhado        DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+    liquidado        DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+    pago             DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+    atualizado_em    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_parl_ano (parlamentar_id, ano),
+    INDEX idx_funcao   (parlamentar_id, ano, funcao),
+    INDEX idx_orgao    (parlamentar_id, ano, orgao)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+echo "[migrate] Tabela parl_pac criada.\n";
+
 echo "[migrate] Concluído.\n";
