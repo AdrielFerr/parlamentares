@@ -2704,29 +2704,46 @@ async function renderTabAgente(p) {
 
   // Novo PAC (apenas se houver dados para este parlamentar)
   if(pacItens.length) {
-    const fmtM2 = v=>v>0?'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2}):'—';
+    // Usa valor numérico explícito — nunca "—" para não gerar ambiguidade no LLM
+    const brl = v => 'R$ ' + Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2});
     const anos = [...new Set(pacItens.map(e=>e.ano).filter(Boolean))].sort((a,b)=>b-a);
     const totDot = pacItens.reduce((s,e)=>s+(e.dotacao_atual||0),0);
     const totEmp = pacItens.reduce((s,e)=>s+(e.empenhado||0),0);
     const totLiq = pacItens.reduce((s,e)=>s+(e.liquidado||0),0);
     const totPag = pacItens.reduce((s,e)=>s+(e.pago||0),0);
-    ctx += `## Novo PAC — Investimentos (${pacItens.length} ações)\n`;
-    ctx += `Anos: ${anos.join(', ')}\n`;
-    ctx += `Dotação atual: ${fmtM2(totDot)} | Empenhado: ${fmtM2(totEmp)} | Liquidado: ${fmtM2(totLiq)} | Pago: ${fmtM2(totPag)}\n`;
+    ctx += `## Novo PAC — Investimentos (${pacItens.length} ações, anos: ${anos.join(', ')})\n`;
+    ctx += `NOTA: "dotacao_atual = R$ 0,00" significa ação cadastrada no PAC mas sem dotação alocada ainda, não ausência de dado.\n`;
+    ctx += `Totais: Dotação atual ${brl(totDot)} | Empenhado ${brl(totEmp)} | Liquidado ${brl(totLiq)} | Pago ${brl(totPag)}\n\n`;
+
+    // Resumo por município (ordenado por dotação atual desc)
+    const porMun={};
+    pacItens.forEach(e=>{
+      const m = e.municipio ? `${e.municipio}/${e.uf||''}` : (e.uf ? `Estado/${e.uf}` : 'Sem localidade');
+      if(!porMun[m]) porMun[m]={dot:0,emp:0,pag:0,n:0};
+      porMun[m].dot+=e.dotacao_atual||0; porMun[m].emp+=e.empenhado||0; porMun[m].pag+=e.pago||0; porMun[m].n++;
+    });
+    ctx += `Resumo por município (ordenado por dotação atual):\n`;
+    Object.entries(porMun).sort((a,b)=>b[1].dot-a[1].dot).forEach(([m,v])=>{
+      ctx+=`  - ${m} (${v.n} ações): Dot. atual ${brl(v.dot)} | Empenhado ${brl(v.emp)} | Pago ${brl(v.pag)}\n`;
+    });
+
+    // Resumo por função
     const porFunc={};
     pacItens.forEach(e=>{
       const f=e.funcao||'Outros';
       if(!porFunc[f]) porFunc[f]={dot:0,pag:0,n:0};
       porFunc[f].dot+=e.dotacao_atual||0; porFunc[f].pag+=e.pago||0; porFunc[f].n++;
     });
-    ctx += `Distribuição por função:\n`;
+    ctx += `\nResumo por função (ordenado por dotação atual):\n`;
     Object.entries(porFunc).sort((a,b)=>b[1].dot-a[1].dot).forEach(([f,v])=>{
-      ctx+=`  - ${f} (${v.n} ações): Dot. ${fmtM2(v.dot)} | Pago: ${fmtM2(v.pag)}\n`;
+      ctx+=`  - ${f} (${v.n} ações): Dot. atual ${brl(v.dot)} | Pago ${brl(v.pag)}\n`;
     });
-    ctx += `\nAções detalhadas (ano, órgão, função, localização, dotação atual, pago):\n`;
+
+    // Ações detalhadas
+    ctx += `\nAções detalhadas:\n`;
     pacItens.forEach(e=>{
-      const loc = e.municipio ? `${e.municipio}${e.uf?'/'+e.uf:''}` : (e.uf||'—');
-      ctx+=`  - ${e.ano} | ${e.orgao||'—'} | ${e.funcao||'—'} | ${loc} | Dot: ${fmtM2(e.dotacao_atual)} | Pago: ${fmtM2(e.pago)}\n`;
+      const loc = e.municipio ? `${e.municipio}${e.uf?'/'+e.uf:''}` : (e.uf ? `Estado/${e.uf}` : 'Sem localidade');
+      ctx+=`  - ${e.ano} | ${e.funcao||'—'} | ${loc} | Dot.inicial ${brl(e.dotacao_inicial)} | Dot.atual ${brl(e.dotacao_atual)} | Emp ${brl(e.empenhado)} | Pago ${brl(e.pago)}\n`;
       if(e.acao) ctx+=`    Ação: ${e.acao.slice(0,100)}\n`;
     });
     ctx += '\n';
