@@ -719,6 +719,41 @@ class ApiController extends Controller {
             ], $rows));
         }
 
+        if (str_contains($path, '/pac/') && $parlId) {
+            $ano = (int)($extra['ano'] ?? 0);
+            if (!$ano) { preg_match('/[?&]ano=(\d+)/', $path, $m); $ano = (int)($m[1] ?? 0); }
+            $anoWhere = $ano ? ' AND ano = ?' : '';
+            $st = $db->prepare(
+                "SELECT ano, orgao, acao, localizador, municipio, uf,
+                        programa, funcao, subfuncao,
+                        dotacao_inicial, dotacao_atual, empenhado, liquidado, pago
+                 FROM parl_pac
+                 WHERE parlamentar_id = ? $anoWhere
+                 ORDER BY ano DESC, empenhado DESC"
+            );
+            $params = [$parlId];
+            if ($ano) $params[] = $ano;
+            $st->execute($params);
+            $rows = $st->fetchAll(PDO::FETCH_ASSOC);
+
+            return $wrap(array_map(fn($r) => [
+                'ano'             => (int)$r['ano'],
+                'orgao'           => $r['orgao'],
+                'acao'            => $r['acao'],
+                'localizador'     => $r['localizador'],
+                'municipio'       => $r['municipio'],
+                'uf'              => $r['uf'],
+                'programa'        => $r['programa'],
+                'funcao'          => $r['funcao'],
+                'subfuncao'       => $r['subfuncao'],
+                'dotacao_inicial' => (float)$r['dotacao_inicial'],
+                'dotacao_atual'   => (float)$r['dotacao_atual'],
+                'empenhado'       => (float)$r['empenhado'],
+                'liquidado'       => (float)$r['liquidado'],
+                'pago'            => (float)$r['pago'],
+            ], $rows));
+        }
+
         return null; // endpoint não gerenciado — passa para sapl_cache/API
     }
 

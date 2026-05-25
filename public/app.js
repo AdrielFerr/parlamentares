@@ -416,6 +416,7 @@ const TABS=[
   {id:'materias',  label:'Matérias',             icon:'<i class="ph ph-file-text"></i>',    labelFor:{'camara_federal':'Proposições'}},
   {id:'normas',    label:'Normas',               icon:'<i class="ph ph-scroll"></i>'},
   {id:'emendas',   label:'Emendas',              icon:'<i class="ph ph-money"></i>',         show:['camara_federal']},
+  {id:'novo_pac',  label:'Novo PAC',             icon:'<i class="ph ph-buildings"></i>',     show:['camara_federal'], showForSaplId:[74858]},
   {id:'filiacoes', label:'Filiações Partidárias',icon:'<i class="ph ph-flag"></i>'},
   {id:'comissoes', label:'Comissões',            icon:'<i class="ph ph-users"></i>'},
   {id:'relatorias',label:'Relatorias',           icon:'<i class="ph ph-clipboard-text"></i>'},
@@ -424,10 +425,12 @@ const TABS=[
   {id:'agente',    label:'Sentinela',             icon:'<i class="ph ph-robot"></i>'},
 ];
 function getVisibleTabs() {
-  const src = APP_CONFIG.source||'';
+  const src    = APP_CONFIG.source||'';
+  const saplId = currentProfile?.id||0;
   return TABS
     .filter(t=>!t.hide||!t.hide.includes(src))
     .filter(t=>!t.show||t.show.includes(src))
+    .filter(t=>!t.showForSaplId||t.showForSaplId.includes(saplId))
     .map(t=>({...t, label:(t.labelFor&&t.labelFor[src])||t.label}));
 }
 
@@ -477,6 +480,7 @@ async function switchTab(tabId) {
     else if(tabId==='materias')  html=await renderTabMaterias(p);
     else if(tabId==='normas')    html=await renderTabNormas(p);
     else if(tabId==='emendas')   html=await renderTabEmendas(p);
+    else if(tabId==='novo_pac')  html=await renderTabNovoPac(p);
     else if(tabId==='filiacoes') html=await renderTabFiliacoes(p);
     else if(tabId==='comissoes') html=await renderTabComissoes(p);
     else if(tabId==='relatorias')html=await renderTabRelatorias(p);
@@ -1894,6 +1898,217 @@ function toggleMunicipios(rowId) {
   if (ico) ico.textContent = visible ? '▶' : '▼';
 }
 
+// ══════════════════════════════════════════════════════
+// NOVO PAC TAB
+// ══════════════════════════════════════════════════════
+let _pacYear   = '';
+let _pacFuncao = '';
+let _pacOrgao  = '';
+
+async function renderTabNovoPac(p) {
+  const fmtBRL = v => v>0 ? 'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—';
+  const pct    = (v,total) => total>0 ? Math.round(v/total*100) : 0;
+
+  const anoHoje = new Date().getFullYear();
+  const anos = [];
+  for(let y=anoHoje; y>=2020; y--) anos.push(y);
+
+  const cacheKey = _pacYear ? `pac_${_pacYear}` : 'pac_todos';
+  const anoParam = _pacYear ? `&ano=${_pacYear}` : '';
+  const itens = await getCached(p.id, cacheKey, () =>
+    fetchAllPages(`/pac/parlamentar/?parlamentar=${p.id}${anoParam}`)
+  );
+
+  const funcoes = [...new Set(itens.map(e=>e.funcao||'').filter(Boolean))].sort();
+  const orgaos  = [...new Set(itens.map(e=>e.orgao||'').filter(Boolean))].sort();
+
+  const lista = itens.filter(e=>
+    (!_pacFuncao || e.funcao===_pacFuncao) &&
+    (!_pacOrgao  || e.orgao===_pacOrgao)
+  );
+
+  const totalDotInicial = lista.reduce((s,e)=>s+(e.dotacao_inicial||0),0);
+  const totalDotAtual   = lista.reduce((s,e)=>s+(e.dotacao_atual||0),0);
+  const totalEmp        = lista.reduce((s,e)=>s+(e.empenhado||0),0);
+  const totalLiq        = lista.reduce((s,e)=>s+(e.liquidado||0),0);
+  const totalPag        = lista.reduce((s,e)=>s+(e.pago||0),0);
+
+  const selStyle = 'padding:5px 10px;border-radius:8px;border:1.5px solid var(--border);background:var(--surface);font-size:12px;font-family:inherit;color:var(--text);min-width:100px;max-width:180px';
+
+  let h='<div>';
+
+  // ── Cabeçalho + filtros ─────────────────────────────
+  h+=`<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">`;
+  h+=`<h3 class="section-title" style="margin:0">Novo PAC</h3>`;
+  h+=`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">`;
+  h+=`<span style="font-size:12px;color:var(--muted);font-weight:600">Ano:</span>`;
+  h+=`<select onchange="switchPacAno(${p.id},this.value)" style="${selStyle}">`;
+  h+=`<option value=""${_pacYear===''?' selected':''}>Todos os anos</option>`;
+  anos.forEach(y=>{ h+=`<option value="${y}"${String(y)===String(_pacYear)?' selected':''}>${y}</option>`; });
+  h+=`</select>`;
+
+  h+=`<select onchange="filterPac(${p.id},'funcao',this.value)" style="${selStyle}" title="Filtrar por função">`;
+  h+=`<option value="">Todas as funções</option>`;
+  funcoes.forEach(f=>{ h+=`<option value="${esc(f)}"${_pacFuncao===f?' selected':''}>${esc(f)}</option>`; });
+  h+=`</select>`;
+
+  h+=`<select onchange="filterPac(${p.id},'orgao',this.value)" style="${selStyle}" title="Filtrar por órgão">`;
+  h+=`<option value="">Todos os órgãos</option>`;
+  orgaos.forEach(o=>{ h+=`<option value="${esc(o)}"${_pacOrgao===o?' selected':''}>${esc(o)}</option>`; });
+  h+=`</select>`;
+
+  if(_pacFuncao||_pacOrgao) {
+    h+=`<button onclick="clearPacFiltros(${p.id})" style="padding:5px 10px;border-radius:8px;border:1.5px solid var(--red);background:var(--red-light);color:var(--red);font-size:12px;font-family:inherit;cursor:pointer">✕ Limpar</button>`;
+  }
+  h+=`</div></div>`;
+
+  if(!lista.length){
+    h+=`<div style="text-align:center;padding:40px;color:var(--muted)">Nenhum dado de PAC encontrado para este parlamentar.</div>`;
+    h+=`</div>`;
+    return h;
+  }
+
+  // ── KPIs ────────────────────────────────────────────
+  const kpiColors={
+    'Dotação Inicial':'var(--muted)',
+    'Dotação Atual':'var(--text)',
+    'Empenhado':'#2563eb',
+    'Liquidado':'#d97706',
+    'Pago':'var(--accent)',
+  };
+  h+=`<div class="kpi-row" style="margin-bottom:16px">`;
+  // Ações — card compacto
+  h+=`<div class="kpi-card"><div class="kpi-value">${lista.length}</div><div class="kpi-label">Ações</div></div>`;
+  // Cards financeiros: valor abreviado + full em tooltip
+  [
+    ['Dotação Inicial', totalDotInicial],
+    ['Dotação Atual',   totalDotAtual],
+    ['Empenhado',       totalEmp],
+    ['Liquidado',       totalLiq],
+    ['Pago',            totalPag],
+  ].forEach(([label, val])=>{
+    const color = kpiColors[label]||'var(--accent)';
+    const full  = val>0 ? fmtBRL(val) : '—';
+    h+=`<div class="kpi-card" title="${full}">`;
+    h+=`<div class="kpi-value" style="font-size:18px;color:${color}">${fmtMoney(val)}</div>`;
+    h+=`<div style="font-size:10px;color:var(--muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${full}</div>`;
+    h+=`<div class="kpi-label">${label}</div>`;
+    h+=`</div>`;
+  });
+  h+=`</div>`;
+
+  // ── Barra de execução ────────────────────────────────
+  if(totalDotAtual>0) {
+    const pEmp=pct(totalEmp,totalDotAtual), pLiq=pct(totalLiq,totalDotAtual), pPag=pct(totalPag,totalDotAtual);
+    h+=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:20px">`;
+    h+=`<div style="font-size:12px;font-weight:600;color:var(--muted);margin-bottom:10px">Execução orçamentária (sobre dotação atual)</div>`;
+    const bars=[
+      {label:'Empenhado', pct:pEmp, color:'var(--accent)'},
+      {label:'Liquidado', pct:pLiq, color:'#2563eb'},
+      {label:'Pago',      pct:pPag, color:'#16a34a'},
+    ];
+    bars.forEach(b=>{
+      h+=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">`;
+      h+=`<span style="font-size:11px;color:var(--muted);width:70px">${b.label}</span>`;
+      h+=`<div style="flex:1;background:var(--border);border-radius:4px;height:8px;overflow:hidden">`;
+      h+=`<div style="width:${b.pct}%;background:${b.color};height:8px;border-radius:4px;transition:width .5s"></div>`;
+      h+=`</div>`;
+      h+=`<span style="font-size:11px;color:var(--text);width:32px;text-align:right">${b.pct}%</span>`;
+      h+=`</div>`;
+    });
+    h+=`</div>`;
+  }
+
+  // ── Tabela agrupada por função ───────────────────────
+  const byFuncao = {};
+  lista.forEach(e=>{
+    const fn=e.funcao||'Sem função';
+    if(!byFuncao[fn]) byFuncao[fn]={itens:[],emp:0,liq:0,pag:0,dot:0};
+    byFuncao[fn].itens.push(e);
+    byFuncao[fn].emp+=e.empenhado||0;
+    byFuncao[fn].liq+=e.liquidado||0;
+    byFuncao[fn].pag+=e.pago||0;
+    byFuncao[fn].dot+=e.dotacao_atual||0;
+  });
+
+  Object.entries(byFuncao).sort((a,b)=>b[1].emp-a[1].emp).forEach(([fn, grp])=>{
+    const rid=`pac_${p.id}_${fn.replace(/\W/g,'_')}`;
+    const mc=grp.pag>0?'var(--accent)':(grp.liq>0?'#2563eb':'var(--muted)');
+    h+=`<div style="border:1px solid var(--border);border-radius:12px;margin-bottom:12px;overflow:hidden">`;
+    h+=`<div onclick="togglePacGrupo('${rid}')" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;cursor:pointer;background:var(--surface);gap:8px">`;
+    h+=`<div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">`;
+    h+=`<span id="${rid}_ico" style="font-size:11px;color:var(--muted)">▶</span>`;
+    h+=`<span style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(fn)}</span>`;
+    h+=`<span style="font-size:11px;color:var(--muted)">(${grp.itens.length})</span>`;
+    h+=`</div>`;
+    h+=`<div style="display:flex;gap:16px;flex-shrink:0;font-size:12px">`;
+    h+=`<span style="color:var(--muted)">Emp: <b>${fmtBRL(grp.emp)}</b></span>`;
+    h+=`<span style="color:${mc}">Pago: <b>${fmtBRL(grp.pag)}</b></span>`;
+    h+=`</div></div>`;
+
+    h+=`<div id="${rid}" style="display:none">`;
+    h+=`<table style="width:100%;border-collapse:collapse;font-size:12px">`;
+    h+=`<thead><tr style="background:var(--accent-light)">`;
+    h+=`<th style="padding:8px 12px;text-align:left;font-weight:600">Ação</th>`;
+    h+=`<th style="padding:8px 12px;text-align:left;font-weight:600">Órgão</th>`;
+    h+=`<th style="padding:8px 12px;text-align:left;font-weight:600">Localização</th>`;
+    h+=`<th style="padding:8px 8px;text-align:right;font-weight:600">Dot. Atual</th>`;
+    h+=`<th style="padding:8px 8px;text-align:right;font-weight:600">Empenhado</th>`;
+    h+=`<th style="padding:8px 8px;text-align:right;font-weight:600">Liquidado</th>`;
+    h+=`<th style="padding:8px 8px;text-align:right;font-weight:600">Pago</th>`;
+    h+=`</tr></thead><tbody>`;
+
+    grp.itens.forEach((e,i)=>{
+      const rowBg=i%2===0?'var(--bg)':'var(--surface)';
+      const rc=e.pago>0?'var(--accent)':(e.liquidado>0?'#2563eb':'var(--text)');
+      h+=`<tr style="background:${rowBg}">`;
+      h+=`<td style="padding:7px 12px">${esc(e.acao||'—')}</td>`;
+      h+=`<td style="padding:7px 12px;color:var(--muted);font-size:11px">${esc(e.orgao||'—')}</td>`;
+      h+=`<td style="padding:7px 12px;font-size:11px">${esc(e.municipio ? `${e.municipio}${e.uf?'/'+e.uf:''}` : e.localizador||'—')}</td>`;
+      h+=`<td style="padding:7px 8px;text-align:right">${fmtBRL(e.dotacao_atual)}</td>`;
+      h+=`<td style="padding:7px 8px;text-align:right">${fmtBRL(e.empenhado)}</td>`;
+      h+=`<td style="padding:7px 8px;text-align:right">${fmtBRL(e.liquidado)}</td>`;
+      h+=`<td style="padding:7px 8px;text-align:right;font-weight:600;color:${rc}">${fmtBRL(e.pago)}</td>`;
+      h+=`</tr>`;
+    });
+    h+=`</tbody></table></div></div>`;
+  });
+
+  h+=`</div>`;
+  return h;
+}
+
+function switchPacAno(parlId, ano) {
+  _pacYear   = ano ? String(ano) : '';
+  _pacFuncao = '';
+  _pacOrgao  = '';
+  const p = allParlamentares.find(x=>x.id===parlId)||currentProfile;
+  if(p) switchTab('novo_pac');
+}
+
+function filterPac(parlId, campo, valor) {
+  if(campo==='funcao') _pacFuncao = valor;
+  if(campo==='orgao')  _pacOrgao  = valor;
+  const p = allParlamentares.find(x=>x.id===parlId)||currentProfile;
+  if(p) switchTab('novo_pac');
+}
+
+function clearPacFiltros(parlId) {
+  _pacFuncao = '';
+  _pacOrgao  = '';
+  const p = allParlamentares.find(x=>x.id===parlId)||currentProfile;
+  if(p) switchTab('novo_pac');
+}
+
+function togglePacGrupo(rowId) {
+  const row = document.getElementById(rowId);
+  const ico = document.getElementById(rowId + '_ico');
+  if (!row) return;
+  const visible = row.style.display !== 'none';
+  row.style.display = visible ? 'none' : '';
+  if (ico) ico.textContent = visible ? '▶' : '▼';
+}
+
 function showNormaGrupo(tipoRaw, ano, isPrimeiro, page) {
   page = Math.max(1, page||1);
   const PER_PAGE = 10;
@@ -2370,7 +2585,7 @@ async function agenteHistoryLoad(parlId) {
 
 async function renderTabAgente(p) {
   const isCamaraAg = APP_CONFIG.source==='camara_federal';
-  let allMat = [], allNorm = [], comissoes = [], filiacoes = [], mandatos = [], frentes = [], emendas = [], relatorias = [];
+  let allMat = [], allNorm = [], comissoes = [], filiacoes = [], mandatos = [], frentes = [], emendas = [], relatorias = [], pacItens = [];
   try {
     const ctxData = await getCached(p.id, 'agente_contexto_all', () => fetchAgenteContextoParlamentar(p.id));
     allMat    = ctxData.materias   || [];
@@ -2392,6 +2607,10 @@ async function renderTabAgente(p) {
       getCached(p.id,'frentes_ag',  ()=>fetchAllPages(`/parlamentares/frenteparlamentar/?parlamentar=${p.id}`)).catch(()=>[]),
       isCamaraAg ? getCached(p.id,'emendas_todas',()=>fetchAllPages(`/emendas/parlamentar/?parlamentar=${p.id}`)).catch(()=>[]) : Promise.resolve([]),
     ]);
+  }
+  // PAC: carrega para qualquer parlamentar com dados (retorna [] se não houver)
+  if(isCamaraAg) {
+    pacItens = await getCached(p.id,'pac_todos',()=>fetchAllPages(`/pac/parlamentar/?parlamentar=${p.id}`)).catch(()=>[]);
   }
 
   const nomeParlamentar = p.nome_parlamentar||p.nome_completo||'';
@@ -2483,6 +2702,36 @@ async function renderTabAgente(p) {
     ctx += '\n';
   }
 
+  // Novo PAC (apenas se houver dados para este parlamentar)
+  if(pacItens.length) {
+    const fmtM2 = v=>v>0?'R$ '+v.toLocaleString('pt-BR',{minimumFractionDigits:2}):'—';
+    const anos = [...new Set(pacItens.map(e=>e.ano).filter(Boolean))].sort((a,b)=>b-a);
+    const totDot = pacItens.reduce((s,e)=>s+(e.dotacao_atual||0),0);
+    const totEmp = pacItens.reduce((s,e)=>s+(e.empenhado||0),0);
+    const totLiq = pacItens.reduce((s,e)=>s+(e.liquidado||0),0);
+    const totPag = pacItens.reduce((s,e)=>s+(e.pago||0),0);
+    ctx += `## Novo PAC — Investimentos (${pacItens.length} ações)\n`;
+    ctx += `Anos: ${anos.join(', ')}\n`;
+    ctx += `Dotação atual: ${fmtM2(totDot)} | Empenhado: ${fmtM2(totEmp)} | Liquidado: ${fmtM2(totLiq)} | Pago: ${fmtM2(totPag)}\n`;
+    const porFunc={};
+    pacItens.forEach(e=>{
+      const f=e.funcao||'Outros';
+      if(!porFunc[f]) porFunc[f]={dot:0,pag:0,n:0};
+      porFunc[f].dot+=e.dotacao_atual||0; porFunc[f].pag+=e.pago||0; porFunc[f].n++;
+    });
+    ctx += `Distribuição por função:\n`;
+    Object.entries(porFunc).sort((a,b)=>b[1].dot-a[1].dot).forEach(([f,v])=>{
+      ctx+=`  - ${f} (${v.n} ações): Dot. ${fmtM2(v.dot)} | Pago: ${fmtM2(v.pag)}\n`;
+    });
+    ctx += `\nAções detalhadas (ano, órgão, função, localização, dotação atual, pago):\n`;
+    pacItens.forEach(e=>{
+      const loc = e.municipio ? `${e.municipio}${e.uf?'/'+e.uf:''}` : (e.uf||'—');
+      ctx+=`  - ${e.ano} | ${e.orgao||'—'} | ${e.funcao||'—'} | ${loc} | Dot: ${fmtM2(e.dotacao_atual)} | Pago: ${fmtM2(e.pago)}\n`;
+      if(e.acao) ctx+=`    Ação: ${e.acao.slice(0,100)}\n`;
+    });
+    ctx += '\n';
+  }
+
   // Proposições / Matérias
   ctx += `## ${isCamaraAg?'Proposições Legislativas':'Matérias Legislativas'} (${allMat.length} total)\n`;
   if(tiposMat.length) {
@@ -2520,6 +2769,7 @@ async function renderTabAgente(p) {
     allMat.length ? `<strong>${allMat.length}</strong> ${matLabel}` : '',
     allNorm.length ? `<strong>${allNorm.length}</strong> ${isCamaraAg?'sancionadas':'normas'}` : '',
     isCamaraAg&&emendas.length ? `<strong>${emendas.length}</strong> emendas` : '',
+    isCamaraAg&&pacItens.length ? `<strong>${pacItens.length}</strong> ações PAC` : '',
     comissoes.length ? `<strong>${comissoes.length}</strong> comissões` : '',
     relatorias.length ? `<strong>${relatorias.length}</strong> relatorias` : '',
     frentes.length  ? `<strong>${frentes.length}</strong> frentes` : '',
@@ -2539,13 +2789,17 @@ async function renderTabAgente(p) {
     allMat.length ? `${isCamaraAg?'proposições':'matérias'} (quantidade, tipos, anos, temas)` : '',
     allNorm.length ? (isCamaraAg?'proposições sancionadas (leis aprovadas)':'normas jurídicas') : '',
     isCamaraAg&&emendas.length ? 'emendas orçamentárias de todos os anos (valores, destinos, funções)' : '',
+    isCamaraAg&&pacItens.length ? `Novo PAC (${pacItens.length} ações de investimento, valores e localização)` : '',
     comissoes.length ? 'comissões e participação' : '',
     frentes.length  ? 'frentes parlamentares' : '',
   ].filter(Boolean);
   h+=`<div class="agente-msg"><div class="agente-av ia">IA</div><div class="agente-bubble ia"><p>Olá! Sou o Agente IA de análise legislativa. Tenho dados completos de <strong>${esc(nomeParlamentar)}</strong> sobre: ${welcomeExtras.join(', ')||'produção legislativa'}.</p><p>Posso analisar ranking por tema, produtividade por ano, buscar proposições específicas, comparar períodos e muito mais.</p></div></div>`;
   h+='</div>';
   h+='<div class="agente-input-bar">';
-  h+=`<textarea id="agenteInput" class="agente-textarea" placeholder="Pergunte sobre ${isCamaraAg?'proposições, normas sancionadas, emendas':'matérias, normas'}, comissões, frentes..." onkeydown="agenteKeydown(event)" oninput="this.style.height='40px';this.style.height=Math.min(this.scrollHeight,120)+'px'"></textarea>`;
+  const agentePlaceholder = isCamaraAg
+    ? `Pergunte sobre proposições, normas sancionadas, emendas${pacItens.length?', Novo PAC':''}, comissões, frentes...`
+    : 'Pergunte sobre matérias, normas, comissões, frentes...';
+  h+=`<textarea id="agenteInput" class="agente-textarea" placeholder="${agentePlaceholder}" onkeydown="agenteKeydown(event)" oninput="this.style.height='40px';this.style.height=Math.min(this.scrollHeight,120)+'px'"></textarea>`;
   h+='<button id="agenteSend" class="agente-send" onclick="agenteSend()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>';
   h+='</div></div></div>';
 
