@@ -80,7 +80,8 @@ $router->add('POST', '/admin/clientes/deletar', 'AdminController', 'clienteDestr
 // Aparência (SuperAdmin)
 $router->add('GET',  '/admin/aparencia',             'AdminController', 'aparencia');
 $router->add('POST', '/admin/aparencia',             'AdminController', 'aparenciaSave');
-$router->add('POST', '/admin/aparencia/logo-remover','AdminController', 'aparenciaLogoRemove');
+$router->add('POST', '/admin/aparencia/logo-remover',    'AdminController', 'aparenciaLogoRemove');
+$router->add('POST', '/admin/aparencia/favicon-remover', 'AdminController', 'aparenciaFaviconRemove');
 
 // Perfil
 $router->add('GET',  '/perfil',        'AdminController', 'perfilForm');

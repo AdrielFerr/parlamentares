@@ -299,6 +299,10 @@ class AdminController extends Controller {
             $error = 'Cor inválida. Use o formato #RRGGBB.';
         }
 
+        // Título da aba
+        $tabTitle = trim($_POST['tab_title'] ?? '');
+        Configuracao::set('tab_title', $tabTitle, $cid);
+
         // Upload de logo
         if (!$error && isset($_FILES['logo']) && $_FILES['logo']['error'] === UPLOAD_ERR_OK) {
             $allowed = ['image/png','image/jpeg','image/webp','image/gif'];
@@ -314,17 +318,39 @@ class AdminController extends Controller {
                 $filename = 'logo_' . ($cid ?? 'global') . '_' . time() . '.' . $ext;
                 $dest     = $dir . $filename;
 
-                // Remove logo anterior
                 $old = Configuracao::get('logo_url', $cid, '');
-                if ($old) {
-                    $oldFile = ROOT . $old;
-                    if (is_file($oldFile)) unlink($oldFile);
-                }
+                if ($old) { $f = ROOT . $old; if (is_file($f)) unlink($f); }
 
                 if (move_uploaded_file($_FILES['logo']['tmp_name'], $dest)) {
                     Configuracao::set('logo_url', '/public/uploads/logos/' . $filename, $cid);
                 } else {
                     $error = 'Falha ao salvar a imagem. Verifique as permissões da pasta.';
+                }
+            }
+        }
+
+        // Upload de favicon
+        if (!$error && isset($_FILES['favicon']) && $_FILES['favicon']['error'] === UPLOAD_ERR_OK) {
+            $allowedFav  = ['image/png','image/x-icon','image/vnd.microsoft.icon','image/svg+xml','image/webp'];
+            $mimeFav     = mime_content_type($_FILES['favicon']['tmp_name']);
+            if (!in_array($mimeFav, $allowedFav)) {
+                $error = 'Favicon inválido. Use ICO, PNG, SVG ou WebP.';
+            } elseif ($_FILES['favicon']['size'] > 512 * 1024) {
+                $error = 'O favicon não pode ter mais de 512 KB.';
+            } else {
+                $dir = ROOT . '/public/uploads/logos/';
+                if (!is_dir($dir)) mkdir($dir, 0755, true);
+                $extMap  = ['image/png'=>'png','image/x-icon'=>'ico','image/vnd.microsoft.icon'=>'ico','image/svg+xml'=>'svg','image/webp'=>'webp'];
+                $extFav  = $extMap[$mimeFav] ?? 'png';
+                $fName   = 'favicon_' . ($cid ?? 'global') . '_' . time() . '.' . $extFav;
+
+                $old = Configuracao::get('favicon_url', $cid, '');
+                if ($old) { $f = ROOT . $old; if (is_file($f)) unlink($f); }
+
+                if (move_uploaded_file($_FILES['favicon']['tmp_name'], $dir . $fName)) {
+                    Configuracao::set('favicon_url', '/public/uploads/logos/' . $fName, $cid);
+                } else {
+                    $error = 'Falha ao salvar o favicon.';
                 }
             }
         }
@@ -345,7 +371,20 @@ class AdminController extends Controller {
             if (is_file($file)) unlink($file);
             Configuracao::set('logo_url', '', $cid);
         }
+        $this->redirect('/admin/aparencia');
+    }
 
+    public function aparenciaFaviconRemove(): void {
+        $this->requireSuperAdmin();
+        $this->verifyCsrf();
+
+        $cid = $this->aparenciaCid();
+        $url = Configuracao::get('favicon_url', $cid, '');
+        if ($url) {
+            $file = ROOT . $url;
+            if (is_file($file)) unlink($file);
+            Configuracao::set('favicon_url', '', $cid);
+        }
         $this->redirect('/admin/aparencia');
     }
 
