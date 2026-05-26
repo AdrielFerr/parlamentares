@@ -19,9 +19,11 @@ if ($_projetoId) {
     $_proj = (new Projeto())->find((int)$_projetoId);
     if ($_proj) $_clienteIdForBranding = (int)$_proj['cliente_id'];
 }
-$_cssVars = Configuracao::getCssVars($_clienteIdForBranding);
-$_logoUrl = Configuracao::logoUrl($_clienteIdForBranding);
+$_cssVars     = Configuracao::getCssVars($_clienteIdForBranding);
+$_logoUrl     = Configuracao::logoUrl($_clienteIdForBranding);
 if (!$_logoUrl) $_logoUrl = BASE_PATH . '/public/assets/keek-verde.png';
+$_tabTitle    = Configuracao::get('tab_title', $_clienteIdForBranding, '') ?: APP_NAME;
+$_faviconUrl  = Configuracao::get('favicon_url', $_clienteIdForBranding, '');
 $_requestPath = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?: '';
 $_showGlobalAi = $_projetoId && str_contains($_requestPath, BASE_PATH . '/parlamentares');
 ?>
@@ -30,7 +32,8 @@ $_showGlobalAi = $_projetoId && str_contains($_requestPath, BASE_PATH . '/parlam
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title><?= $projetoNome ? htmlspecialchars($projetoNome) . ' — ' : '' ?><?= APP_NAME ?></title>
+<title><?= $projetoNome ? htmlspecialchars($projetoNome) . ' — ' : '' ?><?= htmlspecialchars($_tabTitle) ?></title>
+<?php if ($_faviconUrl): ?><link rel="icon" href="<?= htmlspecialchars(BASE_PATH . $_faviconUrl) ?>?t=<?= filemtime(ROOT . $_faviconUrl) ?>"><?php endif; ?>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/@phosphor-icons/web@2.1.1"></script>

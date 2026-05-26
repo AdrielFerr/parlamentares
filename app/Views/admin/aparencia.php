@@ -1,8 +1,10 @@
 <?php
 $isSuperAdmin = Auth::isSuperAdmin();
 $clienteNome  = $ctx['nome'] ?? 'Sistema';
-$accentAtual  = $cfg['cor_accent'] ?? '#16a34a';
-$logoUrl      = $cfg['logo_url']   ?? '';
+$accentAtual  = $cfg['cor_accent']  ?? '#16a34a';
+$logoUrl      = $cfg['logo_url']    ?? '';
+$faviconUrl   = $cfg['favicon_url'] ?? '';
+$tabTitle     = $cfg['tab_title']   ?? '';
 ?>
 <style>
 .ap-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;max-width:820px}
@@ -24,9 +26,14 @@ $logoUrl      = $cfg['logo_url']   ?? '';
 .preview-btn{padding:8px 16px;border:none;border-radius:8px;color:#fff;font-size:13px;font-weight:700;font-family:inherit;cursor:default;transition:background .3s}
 </style>
 
-<!-- Form de remoção de logo — separado do form principal -->
+<!-- Forms de remoção — separados do form principal -->
 <?php if ($logoUrl): ?>
 <form method="POST" action="<?= BASE_PATH ?>/admin/aparencia/logo-remover" id="formRemoverLogo" style="display:none">
+  <input type="hidden" name="_token" value="<?= Auth::csrfToken() ?>">
+</form>
+<?php endif; ?>
+<?php if ($faviconUrl): ?>
+<form method="POST" action="<?= BASE_PATH ?>/admin/aparencia/favicon-remover" id="formRemoverFavicon" style="display:none">
   <input type="hidden" name="_token" value="<?= Auth::csrfToken() ?>">
 </form>
 <?php endif; ?>
@@ -120,6 +127,70 @@ $logoUrl      = $cfg['logo_url']   ?? '';
 
 </div><!-- .ap-grid -->
 
+<!-- Segunda linha: Favicon + Título da aba -->
+<div class="ap-grid" style="margin-top:24px">
+
+  <!-- Favicon -->
+  <div class="ap-card">
+    <div class="ap-card-title"><i class="ph ph-browser" style="color:var(--accent)"></i> Favicon da aba</div>
+    <div class="ap-card-desc">Ícone exibido na aba do navegador. Tamanho recomendado: 32×32 px. Formatos: ICO, PNG, SVG ou WebP. Máximo 512 KB.</div>
+
+    <?php if ($faviconUrl): ?>
+    <div class="logo-preview-wrap" id="faviconCurrentWrap" style="margin-bottom:14px">
+      <img src="<?= htmlspecialchars(asset_url($faviconUrl)) ?>?t=<?= time() ?>" alt="Favicon atual"
+           style="width:48px;height:48px;object-fit:contain;border:1px solid var(--border);border-radius:8px;padding:6px;background:#fff">
+      <div>
+        <button type="button" class="btn-remove-logo"
+                onclick="if(confirm('Remover o favicon atual?')) document.getElementById('formRemoverFavicon').submit()">
+          <i class="ph ph-trash"></i> Remover favicon
+        </button>
+      </div>
+    </div>
+    <?php endif; ?>
+
+    <div id="faviconPreviewWrap" style="display:none;margin-bottom:14px;text-align:center">
+      <img src="" alt="Pré-visualização" id="faviconPreviewImg"
+           style="width:48px;height:48px;object-fit:contain;border:1px solid var(--border);border-radius:8px;padding:6px;background:#fff">
+    </div>
+
+    <div class="logo-upload-area" id="faviconUploadArea" onclick="document.getElementById('faviconFile').click()">
+      <i class="ph ph-image-square" style="font-size:28px;color:var(--muted);margin-bottom:8px"></i>
+      <div id="faviconUploadLabel" style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px">Clique para escolher o favicon</div>
+      <div style="font-size:12px;color:var(--muted)">ICO, PNG, SVG ou WebP — máx. 512 KB</div>
+      <input type="file" name="favicon" id="faviconFile" accept="image/x-icon,image/png,image/svg+xml,image/webp"
+             style="display:none" onchange="previewFavicon(this)">
+    </div>
+  </div>
+
+  <!-- Título da aba -->
+  <div class="ap-card">
+    <div class="ap-card-title"><i class="ph ph-text-t" style="color:var(--accent)"></i> Título da aba do navegador</div>
+    <div class="ap-card-desc">Nome exibido na aba do navegador e nos resultados de busca. Se deixado em branco, usa o padrão do sistema (<?= htmlspecialchars(APP_NAME) ?>).</div>
+
+    <label style="font-size:12px;color:var(--muted);font-weight:500;display:block;margin-bottom:6px">Nome da plataforma</label>
+    <input type="text" name="tab_title" id="tabTitleInput"
+           value="<?= htmlspecialchars($tabTitle) ?>"
+           placeholder="<?= htmlspecialchars(APP_NAME) ?>"
+           maxlength="80"
+           style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:9px;font-size:14px;font-family:inherit;outline:none;margin-bottom:16px"
+           oninput="updateTabPreview(this.value)">
+
+    <div style="font-size:12px;color:var(--muted);font-weight:500;margin-bottom:8px">Pré-visualização da aba</div>
+    <div style="display:flex;align-items:center;gap:8px;background:#e5e7eb;border-radius:8px 8px 0 0;padding:8px 14px;max-width:260px;border:1px solid #d1d5db;border-bottom:none">
+      <?php if ($faviconUrl): ?>
+      <img src="<?= htmlspecialchars(asset_url($faviconUrl)) ?>?t=<?= time() ?>" style="width:16px;height:16px;object-fit:contain" id="tabPreviewFavicon">
+      <?php else: ?>
+      <i class="ph ph-globe" style="font-size:14px;color:#6b7280" id="tabPreviewFaviconIcon"></i>
+      <?php endif; ?>
+      <span id="tabPreviewTitle" style="font-size:12px;color:#374151;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px">
+        <?= htmlspecialchars($tabTitle ?: APP_NAME) ?>
+      </span>
+    </div>
+    <div style="height:4px;background:#fff;border:1px solid #d1d5db;border-top:none;max-width:260px;border-radius:0 0 4px 4px"></div>
+  </div>
+
+</div><!-- segunda linha -->
+
 <div style="margin-top:24px;max-width:820px;display:flex;justify-content:flex-end">
   <button type="submit" class="btn-primary" style="padding:11px 28px;font-size:14px">
     <i class="ph ph-floppy-disk" style="margin-right:6px"></i> Salvar aparência
@@ -180,4 +251,44 @@ area.addEventListener('drop', e => {
     previewLogo(inp);
   }
 });
+
+function previewFavicon(input) {
+  if (!input.files || !input.files[0]) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const img  = document.getElementById('faviconPreviewImg');
+    const wrap = document.getElementById('faviconPreviewWrap');
+    img.src = e.target.result;
+    wrap.style.display = 'block';
+    // Atualiza pré-visualização da aba com o novo favicon
+    const favIcon = document.getElementById('tabPreviewFavicon');
+    const favGlobe = document.getElementById('tabPreviewFaviconIcon');
+    if (favIcon)  { favIcon.src = e.target.result; favIcon.style.display = 'inline'; }
+    if (favGlobe) favGlobe.style.display = 'none';
+  };
+  reader.readAsDataURL(input.files[0]);
+  document.getElementById('faviconUploadLabel').textContent = input.files[0].name;
+  document.getElementById('faviconUploadArea').style.borderColor = 'var(--accent)';
+}
+
+const faviconArea = document.getElementById('faviconUploadArea');
+faviconArea.addEventListener('dragover', e => { e.preventDefault(); faviconArea.classList.add('drag'); });
+faviconArea.addEventListener('dragleave', () => faviconArea.classList.remove('drag'));
+faviconArea.addEventListener('drop', e => {
+  e.preventDefault();
+  faviconArea.classList.remove('drag');
+  const file = e.dataTransfer.files[0];
+  if (file) {
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    const inp = document.getElementById('faviconFile');
+    inp.files = dt.files;
+    previewFavicon(inp);
+  }
+});
+
+function updateTabPreview(val) {
+  const el = document.getElementById('tabPreviewTitle');
+  if (el) el.textContent = val.trim() || '<?= addslashes(APP_NAME) ?>';
+}
 </script>

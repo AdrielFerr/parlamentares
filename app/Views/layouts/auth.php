@@ -1,14 +1,17 @@
 <?php
-$_cssVarsAuth = Configuracao::getCssVars(null);
-$_logoUrlAuth = Configuracao::logoUrl(null);
+$_cssVarsAuth  = Configuracao::getCssVars(null);
+$_logoUrlAuth  = Configuracao::logoUrl(null);
 if (!$_logoUrlAuth) $_logoUrlAuth = '/public/assets/keek-verde.png';
+$_tabTitleAuth  = Configuracao::get('tab_title', null, '') ?: APP_NAME;
+$_faviconAuth   = Configuracao::get('favicon_url', null, '');
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title><?= htmlspecialchars(APP_NAME) ?> — Acesso</title>
+<title><?= htmlspecialchars($_tabTitleAuth) ?> — Acesso</title>
+<?php if ($_faviconAuth): ?><link rel="icon" href="<?= htmlspecialchars(BASE_PATH . $_faviconAuth) ?>?t=<?= filemtime(ROOT . $_faviconAuth) ?>"><?php endif; ?>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>

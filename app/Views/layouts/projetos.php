@@ -12,15 +12,18 @@ $iniciais = strtoupper(substr($partes[0] ?? 'U', 0, 1) . substr(end($partes) ?? 
 $paleta  = ['#16a34a','#2563eb','#9333ea','#ea580c','#0891b2','#db2777','#ca8a04'];
 $corIdx  = abs(crc32($user['nome'] ?? '')) % count($paleta);
 $corAvatar = $paleta[$corIdx];
-$_logoUrlProjetos = Configuracao::logoUrl(Auth::clienteId());
+$_logoUrlProjetos  = Configuracao::logoUrl(Auth::clienteId());
 if (!$_logoUrlProjetos) $_logoUrlProjetos = '/public/assets/keek-verde.png';
+$_tabTitleProj    = Configuracao::get('tab_title', null, '') ?: APP_NAME;
+$_faviconProj     = Configuracao::get('favicon_url', null, '');
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Meus Projetos — <?= APP_NAME ?></title>
+<title>Meus Projetos — <?= htmlspecialchars($_tabTitleProj) ?></title>
+<?php if ($_faviconProj): ?><link rel="icon" href="<?= htmlspecialchars(BASE_PATH . $_faviconProj) ?>?t=<?= filemtime(ROOT . $_faviconProj) ?>"><?php endif; ?>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700;1,14..32,400&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>

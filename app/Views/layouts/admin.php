@@ -5,9 +5,11 @@ $userNivel = Auth::nivel();
 
 // Branding dinâmico
 $_ctxIdForBranding = ($ctx['id'] ?? null);
-$_cssVars  = Configuracao::getCssVars($_ctxIdForBranding);
-$_logoUrl  = Configuracao::logoUrl($_ctxIdForBranding);
+$_cssVars    = Configuracao::getCssVars($_ctxIdForBranding);
+$_logoUrl    = Configuracao::logoUrl($_ctxIdForBranding);
 if (!$_logoUrl) $_logoUrl = '/public/assets/keek-verde.png';
+$_tabTitle   = Configuracao::get('tab_title', $_ctxIdForBranding, '') ?: APP_NAME;
+$_faviconUrl = Configuracao::get('favicon_url', $_ctxIdForBranding, '');
 
 $lvls      = ['SuperAdmin','Administrador','Gestor','Analista','Visualizador'];
 $userRole  = $lvls[$userNivel] ?? 'Usuário';
@@ -45,7 +47,8 @@ foreach ($breadcrumbMap as $path => $info) {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Configurações — <?= htmlspecialchars(APP_NAME) ?></title>
+<title>Configurações — <?= htmlspecialchars($_tabTitle) ?></title>
+<?php if ($_faviconUrl): ?><link rel="icon" href="<?= htmlspecialchars(BASE_PATH . $_faviconUrl) ?>?t=<?= filemtime(ROOT . $_faviconUrl) ?>"><?php endif; ?>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/@phosphor-icons/web@2.1.1"></script>
