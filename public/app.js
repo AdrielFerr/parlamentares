@@ -216,6 +216,33 @@ function buildCardGrid(list) {
     if(!allParlamentares.length) return `<div class="empty"><i class="ph ph-wifi-x" style="font-size:40px;color:var(--muted);opacity:.5;display:block;margin-bottom:14px"></i><p style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:6px">Não foi possível carregar os parlamentares</p><p style="font-size:13px;color:var(--muted);margin-bottom:18px">A API pode estar indisponível. Verifique sua conexão e tente novamente.</p><button onclick="clearCache()" style="padding:9px 20px;border-radius:9px;border:none;background:var(--accent);color:#fff;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer"><i class="ph ph-arrows-clockwise"></i> Tentar novamente</button></div>`;
     return `<div class="empty"><div style="font-size:40px;margin-bottom:12px;opacity:.4"><i class="ph ph-magnifying-glass" style="font-size:48px;color:var(--muted)"></i></div><p style="font-size:15px;font-weight:600;color:var(--text)">Nenhum parlamentar encontrado</p><p style="font-size:13px;margin-top:6px;color:var(--muted)">Tente desativar "Apenas Ativos" ou mudar a legislatura.</p></div>`;
   }
+
+  // Prefeitos: lista agrupada por RM
+  if(APP_CONFIG.source==='prefeitos') {
+    const byRm={};
+    list.forEach(p=>{
+      const rm=p.nm_rm||'Sem RM';
+      if(!byRm[rm]) byRm[rm]=[];
+      byRm[rm].push(p);
+    });
+    let h='';
+    Object.entries(byRm).sort((a,b)=>a[0].localeCompare(b[0],'pt-BR')).forEach(([rm,items])=>{
+      h+=`<div style="margin-bottom:8px"><h3 style="font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;padding:16px 0 8px;border-bottom:1px solid var(--border);margin:0 0 12px">${esc(rm)}</h3>`;
+      h+='<div class="grid">';
+      items.forEach(p=>{
+        const n=esc(p.nome_parlamentar||p.nome_completo||"?"),s=imgSrc(p),ini=initials(p.nome_parlamentar||p.nome_completo);
+        const mun=esc(p.nm_municipio||''),uf=esc(p.uf||'');
+        h+=`<div class="card" onclick="openProfile(${p.id})" onmouseenter="prefetchCard(${p.id})">`;
+        h+=s?`<img class="card-img" src="${esc(s)}" alt="${n}" loading="lazy" onerror="this.outerHTML='<div class=card-avatar>${ini}</div>'">`:`<div class="card-avatar">${ini}</div>`;
+        h+=`<div class="card-body"><div class="card-name">${n}</div>`;
+        if(mun) h+=`<div class="card-meta"><span class="card-uf" style="background:#e0f2fe;color:#0369a1">${mun}</span>${uf?`<span class="card-uf">${uf}</span>`:''}</div>`;
+        h+='</div></div>';
+      });
+      h+='</div></div>';
+    });
+    return h;
+  }
+
   let h='<div class="grid">';
   list.forEach(p=>{
     const n=esc(p.nome_parlamentar||p.nome_completo||"?"),s=imgSrc(p),at=!!p.ativo,ini=initials(p.nome_parlamentar||p.nome_completo);
@@ -243,6 +270,7 @@ function imgSrc(p){
 }
 function esc(s){const d=document.createElement("div");d.textContent=s||"";return d.innerHTML}
 function fmtDate(d){if(!d)return"—";const s=String(d).split('T')[0];const p=s.split("-");return p.length===3?p[2]+"/"+p[1]+"/"+p[0]:d}
+function fmtBRL(v){return'R$ '+Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}
 function stripHtml(s){if(!s)return"";return s.replace(/<[^>]*>/g," ").replace(/&[a-z]+;/gi,c=>{const m={"&amp;":"&","&lt;":"<","&gt;":">","&quot;":'"',"&apos;":"'","&atilde;":"ã","&otilde;":"õ","&eacute;":"é","&iacute;":"í","&oacute;":"ó","&uacute;":"ú","&acirc;":"â","&ecirc;":"ê","&ccedil;":"ç","&Aacute;":"Á","&Eacute;":"É","&Iacute;":"Í","&Oacute;":"Ó","&Uacute;":"Ú","&Atilde;":"Ã","&Otilde;":"Õ","&Ccedil;":"Ç","&nbsp;":" "};return m[c.toLowerCase()]||c}).replace(/\s+/g," ").trim()}
 
 // Pré-carrega partido e autor dos primeiros cards em background após a lista renderizar
@@ -335,6 +363,10 @@ function getFilteredList() {
   }else{
     list=allParlamentares.map(p=>({...p,_tit:p.titular!==false}));
   }
+  if(APP_CONFIG.ufFilter){
+    const _uf=APP_CONFIG.ufFilter.toUpperCase();
+    list=list.filter(p=>(p.uf||'').toUpperCase()===_uf);
+  }
   if(onlyTitular)list=list.filter(p=>!!p._tit);
   if(onlyActive)list=list.filter(p=>!!p.ativo);
   if(selectedPartidos.size>0){
@@ -348,7 +380,9 @@ function getFilteredList() {
       return (p.nome_parlamentar||"").toLowerCase().includes(s)
         || (p.nome_completo||"").toLowerCase().includes(s)
         || partido.includes(s)
-        || uf.includes(s);
+        || uf.includes(s)
+        || (p.nm_municipio||'').toLowerCase().includes(s)
+        || (p.nm_rm||'').toLowerCase().includes(s);
     });
   }
   list.sort((a,b)=>(a.nome_parlamentar||"").localeCompare(b.nome_parlamentar||""));
@@ -408,20 +442,140 @@ function renderList() {
 }
 
 // ══════════════════════════════════════════════════════
+// FINANÇAS DO ESTADO (GOVERNADORES — SICONFI/STN)
+// ══════════════════════════════════════════════════════
+
+let _financasData = null;
+
+async function renderTabFinancas(p) {
+  _financasData = null;
+  const base = APP_CONFIG.basePath || '';
+  const data = await fetch(`${base}/api/financas?sapl_id=${p.id}`).then(r => r.json());
+  if (data.error) return `<div class="empty-tab"><i class="ph ph-warning-circle" style="font-size:32px;color:var(--red);margin-bottom:8px;display:block"></i><p style="color:var(--red);font-weight:600">${esc(data.error)}</p></div>`;
+  _financasData = data;
+
+  const fmt  = v => v != null ? fmtBRL(v) : '—';
+  const fmtB = v => v != null ? 'R$ ' + (v / 1e9).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' bi' : '—';
+  const pct  = (a, b) => (a != null && b != null && b > 0) ? ((a / b) * 100).toFixed(1) + '%' : '—';
+
+  const recPrev = data.receita_prevista;
+  const recReal = data.receita_realizada;
+  const despDot = data.despesa_dotacao;
+  const despLiq = data.despesa_liquidada;
+  const resPrim = data.resultado_primario;
+  const divLiq  = data.divida_consolidada_liq;
+
+  const pctRec  = (recPrev && recReal) ? Math.min((recReal / recPrev) * 100, 100) : 0;
+  const pctDesp = (despDot && despLiq) ? Math.min((despLiq / despDot) * 100, 100) : 0;
+  const surplus = resPrim != null && resPrim >= 0;
+
+  let h = `<div style="padding:20px 0">`;
+  h += `<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:24px">`;
+  h += `<h2 style="font-size:17px;font-weight:700;margin:0">Finanças do Estado</h2>`;
+  h += `<span style="font-size:12px;color:var(--muted);background:var(--bg-secondary);padding:4px 10px;border-radius:20px">RREO ${data.periodo_label} · Fonte: SICONFI/STN</span>`;
+  h += `</div>`;
+
+  // Cards
+  h += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:28px">`;
+
+  // Receita
+  h += `<div class="fin-card">
+    <div class="fin-card-label">Receita Realizada</div>
+    <div class="fin-card-value">${fmtB(recReal)}</div>
+    <div class="fin-card-sub">de ${fmtB(recPrev)} previstos · <strong>${pct(recReal,recPrev)}</strong></div>
+    <div class="fin-bar-track"><div class="fin-bar-fill" style="width:${pctRec.toFixed(1)}%;background:var(--accent)"></div></div>
+  </div>`;
+
+  // Despesa
+  h += `<div class="fin-card">
+    <div class="fin-card-label">Despesa Liquidada</div>
+    <div class="fin-card-value">${fmtB(despLiq)}</div>
+    <div class="fin-card-sub">de ${fmtB(despDot)} dotação · <strong>${pct(despLiq,despDot)}</strong></div>
+    <div class="fin-bar-track"><div class="fin-bar-fill" style="width:${pctDesp.toFixed(1)}%;background:#f59e0b"></div></div>
+  </div>`;
+
+  // Resultado Primário
+  const resColor = surplus ? '#16a34a' : '#dc2626';
+  const resBg    = surplus ? '#dcfce7' : '#fee2e2';
+  h += `<div class="fin-card">
+    <div class="fin-card-label">Resultado Primário</div>
+    <div class="fin-card-value" style="color:${resColor}">${resPrim != null ? (surplus ? '+' : '') + fmtB(resPrim) : '—'}</div>
+    <div class="fin-card-sub"><span style="background:${resBg};color:${resColor};padding:2px 8px;border-radius:10px;font-weight:600;font-size:11px">${surplus ? 'Superávit' : 'Déficit'}</span></div>
+  </div>`;
+
+  // Dívida
+  h += `<div class="fin-card">
+    <div class="fin-card-label">Dívida Consolidada Líquida</div>
+    <div class="fin-card-value" style="color:#dc2626">${fmtB(divLiq)}</div>
+    <div class="fin-card-sub">Relatório de Gestão Fiscal</div>
+  </div>`;
+
+  h += `</div>`;
+
+  // Gráfico de execução orçamentária
+  h += `<div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px">`;
+  h += `<h3 style="font-size:14px;font-weight:600;margin:0 0 16px">Execução Orçamentária</h3>`;
+  h += `<canvas id="finChart" height="120"></canvas>`;
+  h += `</div>`;
+
+  h += `<p style="font-size:11px;color:var(--muted);text-align:right">Dados: SICONFI/Secretaria do Tesouro Nacional. Valores em R$ (reais). Atualizado a cada 24h.</p>`;
+  h += `</div>`;
+  return h;
+}
+
+function initFinancasCharts() {
+  const d = _financasData;
+  if (!d || typeof Chart === 'undefined') return;
+  const canvas = document.getElementById('finChart');
+  if (!canvas) return;
+  const toB = v => v != null ? parseFloat((v / 1e9).toFixed(2)) : 0;
+  new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: ['Receita Prevista', 'Receita Realizada', 'Dotação Atualizada', 'Despesa Liquidada'],
+      datasets: [{
+        data: [toB(d.receita_prevista), toB(d.receita_realizada), toB(d.despesa_dotacao), toB(d.despesa_liquidada)],
+        backgroundColor: ['#93c5fd','#3b82f6','#fcd34d','#f59e0b'],
+        borderRadius: 6,
+        borderSkipped: false,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: {display: false},
+        tooltip: {callbacks: {label: ctx => `R$ ${ctx.raw.toLocaleString('pt-BR',{minimumFractionDigits:2})} bi`}}
+      },
+      scales: {
+        y: {
+          ticks: {callback: v => `R$ ${v}bi`, color: 'var(--text-secondary)', font:{size:11}},
+          grid: {color: 'var(--border)'}
+        },
+        x: {ticks: {color: 'var(--text-secondary)', font:{size:11}}, grid:{display:false}}
+      }
+    }
+  });
+}
+
+// ══════════════════════════════════════════════════════
 // PROFILE WITH TABS
 // ══════════════════════════════════════════════════════
+const GOV_ONLY=['governadores','prefeitos'];
+const NOT_GOV=['camara_federal','senado','dep_estadual','vereadores'];
+const SAPL_ONLY=[...NOT_GOV,'camara_federal'];
 const TABS=[
   {id:'inicio',    label:'Início',               icon:'<i class="ph ph-house"></i>'},
   {id:'mandatos',  label:'Mandatos',             icon:'<i class="ph ph-calendar"></i>'},
-  {id:'materias',  label:'Matérias',             icon:'<i class="ph ph-file-text"></i>',    labelFor:{'camara_federal':'Proposições'}},
-  {id:'normas',    label:'Normas',               icon:'<i class="ph ph-scroll"></i>'},
-  {id:'emendas',   label:'Emendas',              icon:'<i class="ph ph-money"></i>',         show:['camara_federal']},
-  {id:'novo_pac',  label:'Novo PAC',             icon:'<i class="ph ph-buildings"></i>',     show:['camara_federal'], showForSaplId:[74858]},
-  {id:'filiacoes', label:'Filiações Partidárias',icon:'<i class="ph ph-flag"></i>'},
-  {id:'comissoes', label:'Comissões',            icon:'<i class="ph ph-users"></i>'},
-  {id:'relatorias',label:'Relatorias',           icon:'<i class="ph ph-clipboard-text"></i>'},
-  {id:'frentes',   label:'Frentes',              icon:'<i class="ph ph-handshake"></i>'},
-  {id:'dashboard', label:'Dashboard',            icon:'<i class="ph ph-chart-bar"></i>'},
+  {id:'materias',  label:'Matérias',             icon:'<i class="ph ph-file-text"></i>',     hide:GOV_ONLY, labelFor:{'camara_federal':'Proposições'}},
+  {id:'normas',    label:'Normas',               icon:'<i class="ph ph-scroll"></i>',         hide:GOV_ONLY},
+  {id:'emendas',   label:'Emendas',              icon:'<i class="ph ph-money"></i>',          show:['camara_federal']},
+  {id:'novo_pac',  label:'Novo PAC',             icon:'<i class="ph ph-buildings"></i>',      show:['camara_federal'], showForSaplId:[74858]},
+  {id:'filiacoes', label:'Filiações Partidárias',icon:'<i class="ph ph-flag"></i>',           hide:GOV_ONLY},
+  {id:'comissoes', label:'Comissões',            icon:'<i class="ph ph-users"></i>',          hide:GOV_ONLY},
+  {id:'relatorias',label:'Relatorias',           icon:'<i class="ph ph-clipboard-text"></i>', hide:GOV_ONLY},
+  {id:'frentes',   label:'Frentes',              icon:'<i class="ph ph-handshake"></i>',      hide:GOV_ONLY},
+  {id:'dashboard', label:'Dashboard',            icon:'<i class="ph ph-chart-bar"></i>',      hide:GOV_ONLY},
+  {id:'financas',  label:'Finanças do Estado',   icon:'<i class="ph ph-chart-line"></i>',     show:['governadores']},
   {id:'agente',    label:'Sentinela',             icon:'<i class="ph ph-robot"></i>'},
 ];
 function getVisibleTabs() {
@@ -446,6 +600,10 @@ async function renderProfileShell(p) {
   h+=`<h1>${n}</h1>`;
   h+='<div class="profile-details">';
   if(nc&&nc!==n) h+=`<div class="detail-row"><span class="detail-label">Nome Completo:</span><span class="detail-value">${nc}</span></div>`;
+  if(APP_CONFIG.source==='prefeitos'){
+    if(p.nm_municipio) h+=`<div class="detail-row"><span class="detail-label">Município:</span><span class="detail-value">${esc(p.nm_municipio)}${p.uf?' · '+esc(p.uf):''}</span></div>`;
+    if(p.nm_rm) h+=`<div class="detail-row"><span class="detail-label">Região Metropolitana:</span><span class="detail-value">${esc(p.nm_rm)}</span></div>`;
+  }
   h+=`<div class="detail-row" id="party-row" style="display:none"><span class="detail-label">Partido:</span><span class="detail-value" id="party-slot"></span></div>`;
   if(p.telefone) h+=`<div class="detail-row"><span class="detail-label">Telefone:</span><span class="detail-value">${esc(p.telefone)}</span></div>`;
   if(p.telefone_celular) h+=`<div class="detail-row"><span class="detail-label">Celular:</span><span class="detail-value">${esc(p.telefone_celular)}</span></div>`;
@@ -455,7 +613,15 @@ async function renderProfileShell(p) {
   if(p.profissao) h+=`<div class="detail-row"><span class="detail-label">Profissão:</span><span class="detail-value">${esc(p.profissao)}</span></div>`;
   if(p.escolaridade) h+=`<div class="detail-row"><span class="detail-label">Escolaridade:</span><span class="detail-value">${esc(p.escolaridade)}</span></div>`;
   if(p.data_nascimento){const nasc=[p.municipio_nascimento,p.uf_nascimento].filter(Boolean).join(' - '); h+=`<div class="detail-row"><span class="detail-label">Nascimento:</span><span class="detail-value">${fmtDate(p.data_nascimento)}${nasc?' · '+esc(nasc):''}</span></div>`;}
+  if(p.patrimonio!=null){h+=`<div class="detail-row"><span class="detail-label">Patrimônio declarado:</span><span class="detail-value">${fmtBRL(p.patrimonio)}</span></div>`;}
   h+=`<div class="detail-row"><span class="detail-label">Situação:</span><span class="detail-value"><span class="tag" style="background:${at?'var(--accent-light)':'var(--red-light)'};color:${at?'var(--accent)':'var(--red)'}"><span class="dot ${at?'on':'off'}"></span> ${at?'Ativo':'Inativo'}</span></span></div>`;
+  if(p.redes_sociais&&p.redes_sociais.length){
+    const icons={instagram:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><circle cx="12" cy="12" r="3.5"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/></svg>',facebook:'<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>',twitter:'<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>',youtube:'<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M22.54 6.42a2.78 2.78 0 0 0-1.95-1.96C18.88 4 12 4 12 4s-6.88 0-8.59.46A2.78 2.78 0 0 0 1.46 6.42 29 29 0 0 0 1 12a29 29 0 0 0 .46 5.58A2.78 2.78 0 0 0 3.41 19.54C5.12 20 12 20 12 20s6.88 0 8.59-.46a2.78 2.78 0 0 0 1.95-1.96A29 29 0 0 0 23 12a29 29 0 0 0-.46-5.58zM9.75 15.02V8.98L15.5 12z"/></svg>',tiktok:'<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.5 2.89 2.89 0 0 1-2.89-2.89 2.89 2.89 0 0 1 2.89-2.89c.28 0 .54.04.79.1V9.01a6.29 6.29 0 0 0-.79-.05 6.34 6.34 0 0 0-6.34 6.34 6.34 6.34 0 0 0 6.34 6.34 6.34 6.34 0 0 0 6.33-6.34V8.95a8.19 8.19 0 0 0 4.79 1.54V7.03a4.85 4.85 0 0 1-1.02-.34z"/></svg>',linkedin:'<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6zM2 9h4v12H2z"/><circle cx="4" cy="4" r="2"/></svg>',outro:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>'};
+    const links=p.redes_sociais.filter(r=>r.plataforma!=='outro').map(r=>`<a href="${esc(r.url)}" target="_blank" rel="noopener" title="${esc(r.plataforma)}" style="color:var(--text-secondary);display:inline-flex;align-items:center;gap:4px;padding:4px 6px;border-radius:6px;background:var(--bg-secondary);text-decoration:none" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text-secondary)'">${icons[r.plataforma]||icons.outro}</a>`).join('');
+    const site=p.redes_sociais.find(r=>r.plataforma==='outro');
+    if(links) h+=`<div class="detail-row"><span class="detail-label">Redes sociais:</span><span class="detail-value" style="display:flex;gap:6px;flex-wrap:wrap">${links}</span></div>`;
+    if(site) h+=`<div class="detail-row"><span class="detail-label">Site oficial:</span><span class="detail-value"><a href="${esc(site.url)}" target="_blank" rel="noopener" style="color:var(--accent)">${esc(site.url)}</a></span></div>`;
+  }
   h+='</div></div></div>';
   h+='<div class="tabs-nav">';
   getVisibleTabs().forEach(t=>{h+=`<button class="tab-btn${activeTab===t.id?' active':''}" onclick="switchTab('${t.id}')">${t.label}</button>`});
@@ -485,9 +651,11 @@ async function switchTab(tabId) {
     else if(tabId==='comissoes') html=await renderTabComissoes(p);
     else if(tabId==='relatorias')html=await renderTabRelatorias(p);
     else if(tabId==='frentes')   html=await renderTabFrentes(p);
+    else if(tabId==='financas')  html=await renderTabFinancas(p);
     else if(tabId==='agente')    html=await renderTabAgente(p);
     el.innerHTML=html;
     if(tabId==='dashboard') setTimeout(initDashboardCharts,0);
+    if(tabId==='financas')  setTimeout(initFinancasCharts,0);
     if(tabId==='agente')    setTimeout(initAgenteEvents,0);
     const _extrasAbas=['inicio','materias','normas','emendas','filiacoes','comissoes','relatorias','frentes'];
     if(_extrasAbas.includes(tabId) && p) {
@@ -1016,6 +1184,58 @@ async function renderTabInicio(p) {
 
 // ── Tab: Mandatos ──
 async function renderTabMandatos(p) {
+  // Prefeitos: mandato de 2024
+  if(APP_CONFIG.source==='prefeitos'){
+    const mandatos = p.mandatos_pref || [];
+    if(!mandatos.length) return semDados('Nenhum mandato encontrado.');
+    const m = mandatos[0];
+    const periodo = `${m.periodo_ini} – ${m.periodo_fim}`;
+    const votosStr = m.votos!=null ? Number(m.votos).toLocaleString('pt-BR') : '—';
+    const pctStr   = m.pct_votos!=null ? m.pct_votos.toFixed(2).replace('.',',')+'%' : '—';
+    let h=`<h3 class="section-title">Prefeito(a) de ${esc(p.nm_municipio||'')} · ${esc(p.nm_rm||'')}</h3>`;
+    h+=`<div class="table-wrap"><table>`;
+    h+=`<thead><tr><th>Cargo / Período</th><th>Eleição</th><th>Votos Recebidos</th><th>%</th><th>Coligação</th><th>Resultado</th></tr></thead><tbody>`;
+    h+=`<tr>
+      <td><span class="td-leg">Prefeito(a) de ${esc(p.nm_municipio||'')} · ${periodo} (Atual)</span></td>
+      <td>${m.ano_eleicao}${m.turno!=null?' · '+m.turno+'º turno':''}</td>
+      <td><span class="td-votos">${votosStr}</span></td>
+      <td style="color:#374151;font-size:12px">${pctStr}</td>
+      <td style="color:#111827;font-size:12px">${m.coligacao?esc(m.coligacao):'—'}</td>
+      <td>${m.resultado?`<span class="td-titular yes">${esc(m.resultado)}</span>`:'—'}</td>
+    </tr>`;
+    h+=`</tbody></table></div>`;
+    return h;
+  }
+
+  // Governadores: exibe mandatos históricos do banco (sem SAPL)
+  if(APP_CONFIG.source==='governadores'){
+    const mandatos = p.mandatos_gov || [];
+    if(!mandatos.length) return semDados('Nenhum mandato encontrado. Execute sync_gov_extras.php para importar.');
+    const nomesUF={AC:'Acre',AL:'Alagoas',AM:'Amazonas',AP:'Amapá',BA:'Bahia',CE:'Ceará',DF:'Distrito Federal',ES:'Espírito Santo',GO:'Goiás',MA:'Maranhão',MG:'Minas Gerais',MS:'Mato Grosso do Sul',MT:'Mato Grosso',PA:'Pará',PB:'Paraíba',PE:'Pernambuco',PI:'Piauí',PR:'Paraná',RJ:'Rio de Janeiro',RN:'Rio Grande do Norte',RO:'Rondônia',RR:'Roraima',RS:'Rio Grande do Sul',SC:'Santa Catarina',SE:'Sergipe',SP:'São Paulo',TO:'Tocantins'};
+    const ufNome = nomesUF[p.uf]||p.uf||'';
+    const anoAtual = new Date().getFullYear();
+    let h=`<h3 class="section-title">Total de Mandatos: ${mandatos.length}</h3>`;
+    h+=`<div class="table-wrap"><table>`;
+    h+=`<thead><tr><th>Cargo / Período</th><th>Eleição</th><th>Votos Recebidos</th><th>%</th><th>Coligação</th><th>Resultado</th></tr></thead><tbody>`;
+    mandatos.forEach(m=>{
+      const atual = m.periodo_fim >= anoAtual ? ' (Atual)' : '';
+      const periodo = `${m.periodo_ini} – ${m.periodo_fim}`;
+      const votosStr = m.votos!=null ? Number(m.votos).toLocaleString('pt-BR') : '—';
+      const pctStr   = m.pct_votos!=null ? m.pct_votos.toFixed(2).replace('.',',')+'%' : '—';
+      h+=`<tr>
+        <td><span class="td-leg">Governador${ufNome?' do '+ufNome:''} · ${periodo}${atual}</span></td>
+        <td>${m.ano_eleicao}${m.turno!=null?' · '+m.turno+'º turno':''}</td>
+        <td><span class="td-votos">${votosStr}</span></td>
+        <td style="color:#374151;font-size:12px">${pctStr}</td>
+        <td style="color:#111827;font-size:12px">${m.coligacao?esc(m.coligacao):'—'}</td>
+        <td>${m.resultado?`<span class="td-titular yes">${esc(m.resultado)}</span>`:'—'}</td>
+      </tr>`;
+    });
+    h+=`</tbody></table></div>`;
+    return h;
+  }
+
+  // Demais fontes: SAPL
   const mandatos=await getCached(p.id,'mandatos',()=>fetchAllPages(`/parlamentares/mandato/?parlamentar=${p.id}`));
   mandatos.sort((a,b)=>(b.legislatura||0)-(a.legislatura||0));
   const lm={};allLegislaturas.forEach(l=>lm[l.id]=l);
@@ -2631,6 +2851,8 @@ async function renderTabAgente(p) {
   ctx += `Partido: ${p.partido?.sigla||p.partido_sigla||'—'} | UF: ${p.uf||'—'} | Situação: ${p.ativo?'Ativo':'Inativo'}\n`;
   if(p.profissao) ctx += `Profissão: ${p.profissao}\n`;
   if(p.escolaridade) ctx += `Escolaridade: ${p.escolaridade}\n`;
+  if(p.patrimonio!=null) ctx += `Patrimônio declarado (eleições 2022): ${fmtBRL(p.patrimonio)}\n`;
+  if(p.redes_sociais&&p.redes_sociais.length){ctx+=`Redes sociais: ${p.redes_sociais.map(r=>r.plataforma+': '+r.url).join(', ')}\n`;}
   ctx += '\n';
 
   // Mandatos
