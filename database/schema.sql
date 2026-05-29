@@ -41,6 +41,12 @@ CREATE TABLE IF NOT EXISTS projetos (
   FOREIGN KEY (fonte_id)   REFERENCES fontes_legislativas(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS projeto_usuarios (
+  projeto_id INT UNSIGNED NOT NULL,
+  usuario_id INT UNSIGNED NOT NULL,
+  PRIMARY KEY (projeto_id, usuario_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS sentinela_conversas (
   id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   projeto_id  INT UNSIGNED NOT NULL,

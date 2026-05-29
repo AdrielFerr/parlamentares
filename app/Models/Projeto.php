@@ -15,6 +15,20 @@ class Projeto extends Model {
         return $st->fetchAll();
     }
 
+    /* ── Listagem por UF (Super Admin — página de estado) ── */
+    public function byUf(string $uf): array {
+        $st = $this->db->prepare("
+            SELECT p.*, c.nome AS cliente_nome, f.label AS fonte_label, f.source_key, f.url AS fonte_url
+            FROM projetos p
+            LEFT JOIN clientes c ON c.id = p.cliente_id
+            LEFT JOIN fontes_legislativas f ON f.id = p.fonte_id
+            WHERE p.uf = ? AND p.ativo = 1
+            ORDER BY c.nome, p.nome
+        ");
+        $st->execute([$uf]);
+        return $st->fetchAll();
+    }
+
     /* ── Listagem com cliente (Super Admin) ── */
     public function allWithCliente(): array {
         return $this->db->query("
@@ -69,7 +83,7 @@ class Projeto extends Model {
         $this->update($projetoId, ['openai_key_enc' => $enc]);
     }
 
-    /* ── Tabela de vínculos projeto ↔ administrador ── */
+    /* ── Tabela de vínculos projeto ↔ administrador (nivel=1, legado) ── */
     private function ensureAdminsTable(): void {
         $this->db->exec("
             CREATE TABLE IF NOT EXISTS projeto_admins (
@@ -80,7 +94,18 @@ class Projeto extends Model {
         ");
     }
 
-    /** Projetos atribuídos a um Administrador do sistema */
+    /* ── Tabela de vínculos projeto ↔ usuário (todos os níveis) ── */
+    private function ensureUsuariosTable(): void {
+        $this->db->exec("
+            CREATE TABLE IF NOT EXISTS projeto_usuarios (
+                projeto_id INT UNSIGNED NOT NULL,
+                usuario_id INT UNSIGNED NOT NULL,
+                PRIMARY KEY (projeto_id, usuario_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+    }
+
+    /** Projetos atribuídos a um Administrador do sistema (nivel=1) */
     public function byAdminUser(int $userId): array {
         $this->ensureAdminsTable();
         $st = $this->db->prepare("
@@ -95,7 +120,23 @@ class Projeto extends Model {
         return $st->fetchAll();
     }
 
-    /** IDs dos administradores vinculados ao projeto */
+    /** Projetos vinculados explicitamente ao usuário via projeto_usuarios */
+    public function byUsuariosExtra(int $userId): array {
+        $this->ensureUsuariosTable();
+        $st = $this->db->prepare("
+            SELECT p.*, c.nome AS cliente_nome, f.label AS fonte_label, f.source_key, f.url AS fonte_url
+            FROM projetos p
+            INNER JOIN projeto_usuarios pu ON pu.projeto_id = p.id
+            LEFT JOIN clientes c ON c.id = p.cliente_id
+            LEFT JOIN fontes_legislativas f ON f.id = p.fonte_id
+            WHERE pu.usuario_id = ? AND p.ativo = 1
+            ORDER BY p.nome
+        ");
+        $st->execute([$userId]);
+        return $st->fetchAll();
+    }
+
+    /** IDs dos administradores vinculados ao projeto (legado) */
     public function getAdminIds(int $projetoId): array {
         $this->ensureAdminsTable();
         $st = $this->db->prepare("SELECT usuario_id FROM projeto_admins WHERE projeto_id = ?");
@@ -103,7 +144,15 @@ class Projeto extends Model {
         return array_column($st->fetchAll(), 'usuario_id');
     }
 
-    /** Define os administradores do projeto (substitui lista anterior) */
+    /** IDs de todos os usuários vinculados explicitamente ao projeto */
+    public function getUsuarioIds(int $projetoId): array {
+        $this->ensureUsuariosTable();
+        $st = $this->db->prepare("SELECT usuario_id FROM projeto_usuarios WHERE projeto_id = ?");
+        $st->execute([$projetoId]);
+        return array_column($st->fetchAll(), 'usuario_id');
+    }
+
+    /** Define os administradores do projeto — legado, mantido por compatibilidade */
     public function setAdmins(int $projetoId, array $userIds): void {
         $this->ensureAdminsTable();
         $this->db->prepare("DELETE FROM projeto_admins WHERE projeto_id = ?")->execute([$projetoId]);
@@ -113,15 +162,44 @@ class Projeto extends Model {
         }
     }
 
+    /** Define os usuários com acesso ao projeto (todos os níveis) */
+    public function setUsuarios(int $projetoId, array $userIds): void {
+        $this->ensureUsuariosTable();
+        $this->db->prepare("DELETE FROM projeto_usuarios WHERE projeto_id = ?")->execute([$projetoId]);
+        $cleanIds = array_unique(array_filter(array_map('intval', $userIds)));
+        if (empty($cleanIds)) {
+            $this->setAdmins($projetoId, []);
+            return;
+        }
+        $st = $this->db->prepare("INSERT IGNORE INTO projeto_usuarios (projeto_id, usuario_id) VALUES (?, ?)");
+        foreach ($cleanIds as $uid) {
+            $st->execute([$projetoId, $uid]);
+        }
+        // Sincroniza nivel=1 em projeto_admins para backward-compat
+        $ph      = implode(',', array_fill(0, count($cleanIds), '?'));
+        $stNiv   = $this->db->prepare("SELECT id FROM usuarios WHERE id IN ($ph) AND nivel = 1");
+        $stNiv->execute($cleanIds);
+        $this->setAdmins($projetoId, array_column($stNiv->fetchAll(), 'id'));
+    }
+
     /* ── Verifica se usuário pode acessar o projeto ── */
     public function canAccess(int $projetoId, int $userId, int $nivel, ?int $clienteId): bool {
         if ($nivel === 0) return true;
+
+        // Verificação via projeto_usuarios (todos os níveis)
+        $this->ensureUsuariosTable();
+        $st = $this->db->prepare("SELECT 1 FROM projeto_usuarios WHERE projeto_id = ? AND usuario_id = ?");
+        $st->execute([$projetoId, $userId]);
+        if ($st->fetch()) return true;
+
+        // Fallback: acesso por cliente (nivel 2+)
         if ($clienteId !== null) {
             $st = $this->db->prepare("SELECT id FROM projetos WHERE id = ? AND cliente_id = ? AND ativo = 1");
             $st->execute([$projetoId, $clienteId]);
             return (bool)$st->fetch();
         }
-        // Admin (nivel=1, sem cliente vinculado): verifica projeto_admins
+
+        // Fallback: projeto_admins (nivel=1 sem cliente)
         $this->ensureAdminsTable();
         $st = $this->db->prepare("SELECT 1 FROM projeto_admins WHERE projeto_id = ? AND usuario_id = ?");
         $st->execute([$projetoId, $userId]);

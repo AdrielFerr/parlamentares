@@ -7,23 +7,32 @@ class ProjetosController extends Controller {
     public function index(): void {
         $this->requireAuth();
 
-        // Limpa o projeto ativo da sessão ao voltar para a lista
         Auth::setProjeto(0, '', '[]');
+        Auth::setUfFilter('');
 
-        $model    = new Projeto();
-        $user     = Auth::user();
+        $model = new Projeto();
+        $user  = Auth::user();
 
         /* Carrega projetos conforme nível de acesso */
         if (Auth::isSuperAdmin()) {
             $projetos = $model->allWithCliente();
         } elseif (Auth::nivel() === 1 && Auth::clienteId() === null) {
-            // Administrador do sistema: só vê projetos explicitamente atribuídos
             $projetos = $model->byAdminUser((int)Auth::id());
+            $extras   = $model->byUsuariosExtra((int)Auth::id());
+            $existIds = array_column($projetos, 'id');
+            foreach ($extras as $e) {
+                if (!in_array($e['id'], $existIds)) { $projetos[] = $e; $existIds[] = $e['id']; }
+            }
         } else {
             $projetos = $model->byCliente((int)$user['cliente_id']);
+            $extras   = $model->byUsuariosExtra((int)Auth::id());
+            $existIds = array_column($projetos, 'id');
+            foreach ($extras as $e) {
+                if (!in_array($e['id'], $existIds)) { $projetos[] = $e; $existIds[] = $e['id']; }
+            }
         }
 
-        /* parl_total vem da tabela projetos; se ainda for 0, conta direto do cache */
+        /* Contagem de parlamentares */
         foreach ($projetos as &$p) {
             $parlTotal = (int)($p['parl_total'] ?? 0);
             if ($parlTotal === 0 && !empty($p['source_key'])) {
@@ -33,12 +42,41 @@ class ProjetosController extends Controller {
         }
         unset($p);
 
-        $fontes     = (new FonteLegislativa())->allOrdered();
-        $clientes   = Auth::isSuperAdmin() ? (new Cliente())->allAtivos() : [];
-        $adminUsers = Auth::isSuperAdmin() ? (new Usuario())->allAdministradores() : [];
+        /* Agrupa projetos por UF */
+        $extrasMap   = require ROOT . '/config/estados.php';
+        $sourceUfMap = [];
+        foreach ($extrasMap as $uf => $fontes) {
+            foreach ($fontes as $fe) $sourceUfMap[$fe['source_key']] = $uf;
+        }
 
-        /* Usa layout 'projetos' (sem sidebar) */
-        $this->render('projetos/index', compact('projetos', 'fontes', 'clientes', 'adminUsers'), 'projetos');
+        $projetosPorUf = [];
+        foreach ($projetos as $p) {
+            $uf = strtoupper($p['uf'] ?? '');
+            if (!$uf) $uf = $sourceUfMap[$p['source_key'] ?? ''] ?? '';
+            $projetosPorUf[$uf ?: '_sem_estado'][] = $p;
+        }
+
+        /* Carrega estados do banco */
+        $db = Database::connect();
+        $estadosRows = $db->query(
+            "SELECT uf, nome, regiao FROM estados WHERE ativo=1 ORDER BY nome"
+        )->fetchAll(PDO::FETCH_ASSOC);
+
+        $estados = [];
+        foreach ($estadosRows as $r) {
+            $estados[$r['uf']] = ['nome' => $r['nome'], 'regiao' => $r['regiao']];
+        }
+
+        /* Para não-admin: mostra só estados com projetos */
+        if (!Auth::isSuperAdmin()) {
+            $estados = array_intersect_key($estados, $projetosPorUf);
+        }
+
+        $clientes     = Auth::isSuperAdmin() ? (new Cliente())->allAtivos() : [];
+        $adminUsers   = Auth::isSuperAdmin() ? (new Usuario())->allAdministradores() : [];
+        $todoUsuarios = Auth::isSuperAdmin() ? (new Usuario())->allAssignaveis() : [];
+
+        $this->render('projetos/index', compact('estados', 'projetosPorUf', 'projetos', 'clientes', 'adminUsers', 'todoUsuarios'), 'projetos');
     }
 
     /* ────────────────────────────────────────────────────────────
@@ -50,15 +88,24 @@ class ProjetosController extends Controller {
 
         $id      = (int)($_POST['projeto_id'] ?? 0);
         $model   = new Projeto();
-        $projeto = $model->find($id);
+        $projeto = $model->findComFonte($id);
 
         if (!$projeto || !$this->validarAcessoProjeto($projeto)) {
             $this->json(['ok' => false, 'error' => 'Projeto não encontrado ou sem acesso.'], 403);
             return;
         }
 
-        /* Persiste na sessão */
+        /* Persiste projeto na sessão */
         Auth::setProjeto($id, $projeto['nome'], $projeto['dashboards_json'] ?? '[]');
+
+        /* Define filtro de UF para fontes nacionais */
+        $sourceKey = $projeto['source_key'] ?? '';
+        $uf        = strtoupper($projeto['uf'] ?? '');
+        if ($uf && in_array($sourceKey, ['camara_federal', 'senado'])) {
+            Auth::setUfFilter($uf);
+        } else {
+            Auth::setUfFilter('');
+        }
 
         $this->json([
             'ok'       => true,
@@ -83,7 +130,8 @@ class ProjetosController extends Controller {
 
         /* Não expõe a chave criptografada; indica apenas se existe */
         unset($projeto['openai_key_enc']);
-        $projeto['admin_ids'] = $model->getAdminIds($id);
+        $projeto['admin_ids']   = $model->getAdminIds($id);
+        $projeto['usuario_ids'] = $model->getUsuarioIds($id);
         $this->json($projeto);
     }
 
@@ -103,8 +151,8 @@ class ProjetosController extends Controller {
         $apiKey = trim($_POST['openai_key'] ?? '');
         if ($apiKey) $model->setApiKey($id, $apiKey);
 
-        $adminIds = json_decode($_POST['admin_ids'] ?? '[]', true) ?: [];
-        $model->setAdmins($id, $adminIds);
+        $usuarioIds = json_decode($_POST['usuario_ids'] ?? '[]', true) ?: [];
+        $model->setUsuarios($id, $usuarioIds);
 
         $this->json(['ok' => true, 'id' => $id]);
     }
@@ -128,8 +176,8 @@ class ProjetosController extends Controller {
         $apiKey = trim($_POST['openai_key'] ?? '');
         if ($apiKey) $model->setApiKey($id, $apiKey);
 
-        $adminIds = json_decode($_POST['admin_ids'] ?? '[]', true) ?: [];
-        $model->setAdmins($id, $adminIds);
+        $usuarioIds = json_decode($_POST['usuario_ids'] ?? '[]', true) ?: [];
+        $model->setUsuarios($id, $usuarioIds);
 
         /* Atualiza sessão se o projeto editado estiver ativo */
         if ((int)Auth::projetoId() === $id) {
@@ -137,6 +185,36 @@ class ProjetosController extends Controller {
         }
 
         $this->json(['ok' => true]);
+    }
+
+    /* ────────────────────────────────────────────────────────────
+     * GET /projetos/estado/{uf}  —  Lista de projetos de um estado (SA)
+     * ──────────────────────────────────────────────────────────── */
+    public function estadoProjetos(string $uf): void {
+        $this->requireSuperAdmin();
+        $uf = strtoupper(trim($uf));
+
+        $db = Database::connect();
+        $st = $db->prepare("SELECT uf, nome, regiao FROM estados WHERE uf = ? AND ativo = 1");
+        $st->execute([$uf]);
+        $estado = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$estado) { $this->redirect('/projetos'); return; }
+
+        $model    = new Projeto();
+        $projetos = $model->byUf($uf);
+        foreach ($projetos as &$p) {
+            $parlTotal = (int)($p['parl_total'] ?? 0);
+            if ($parlTotal === 0 && !empty($p['source_key'])) {
+                $parlTotal = $model->countParlamentares($p['source_key']);
+            }
+            $p['parl_count'] = $parlTotal;
+        }
+        unset($p);
+
+        $clientes     = (new Cliente())->allAtivos();
+        $todoUsuarios = (new Usuario())->allAssignaveis();
+
+        $this->render('projetos/estado', compact('estado', 'projetos', 'uf', 'clientes', 'todoUsuarios'), 'projetos');
     }
 
     /* ────────────────────────────────────────────────────────────
@@ -213,21 +291,20 @@ class ProjetosController extends Controller {
 
     /* Extrai e valida os campos POST do modal */
     private function extrairDadosPost(bool $isNovo): array {
-        $nome      = trim($_POST['nome'] ?? '');
-        $fonteId   = (int)($_POST['fonte_id'] ?? 0);
-        $modelo    = trim($_POST['openai_model'] ?? 'gpt-4o');
-        $dashJson  = trim($_POST['dashboards_json'] ?? '[]');
+        $nome     = trim($_POST['nome'] ?? '');
+        $uf       = strtoupper(trim($_POST['uf'] ?? ''));
+        $modelo   = trim($_POST['openai_model'] ?? 'gpt-4o');
+        $dashJson = trim($_POST['dashboards_json'] ?? '[]');
 
         /* Validação básica do JSON de dashboards */
         $dashDecoded = json_decode($dashJson, true);
         if (!is_array($dashDecoded)) $dashJson = '[]';
 
-        if (!$nome)    return [false, 'O nome do projeto é obrigatório.', []];
-        if (!$fonteId) return [false, 'Selecione a fonte legislativa.',   []];
+        if (!$nome) return [false, 'O nome do projeto é obrigatório.', []];
 
         $dados = [
             'nome'            => $nome,
-            'fonte_id'        => $fonteId,
+            'uf'              => $uf,
             'openai_model'    => $modelo,
             'dashboards_json' => $dashJson,
             'ativo'           => 1,

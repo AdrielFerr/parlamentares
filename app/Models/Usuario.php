@@ -29,6 +29,17 @@ class Usuario extends Model {
         return $st->fetchAll();
     }
 
+    /** Todos os usuários não-SuperAdmin ativos agrupados por cliente — para vincular a projetos */
+    public function allAssignaveis(): array {
+        return $this->db->query("
+            SELECT u.id, u.nome, u.email, u.nivel, u.cliente_id, c.nome AS cliente_nome
+            FROM usuarios u
+            LEFT JOIN clientes c ON c.id = u.cliente_id
+            WHERE u.nivel BETWEEN 1 AND 4 AND u.ativo = 1
+            ORDER BY (u.cliente_id IS NULL) DESC, c.nome, u.nivel, u.nome
+        ")->fetchAll();
+    }
+
     public function createUser(string $nome, string $email, string $senha, int $nivel, ?int $clienteId): int {
         $st = $this->db->prepare("SELECT id FROM usuarios WHERE email = ? LIMIT 1");
         $st->execute([$email]);

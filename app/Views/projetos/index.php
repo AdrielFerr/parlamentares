@@ -1,122 +1,252 @@
 <?php
-/* ─────────────────────────────────────────────────────────────
- * View: Seleção de Projetos
- * Layout: projetos (sem sidebar)
- * ───────────────────────────────────────────────────────────── */
-
-/* Projeto atualmente selecionado na sessão */
 $projetoAtivo = Auth::projetoId();
 
-/* Fontes indexadas por id para lookup rápido */
-$fontesIdx = [];
-foreach ($fontes as $f) {
-    $fontesIdx[$f['id']] = $f;
-}
+$regiaoMeta = [
+    'N'  => ['label' => 'Norte',        'cor' => '#0891b2', 'bg' => '#ecfeff'],
+    'NE' => ['label' => 'Nordeste',     'cor' => '#ea580c', 'bg' => '#fff7ed'],
+    'CO' => ['label' => 'Centro-Oeste', 'cor' => '#7c3aed', 'bg' => '#f5f3ff'],
+    'SE' => ['label' => 'Sudeste',      'cor' => '#2563eb', 'bg' => '#eff6ff'],
+    'S'  => ['label' => 'Sul',          'cor' => '#16a34a', 'bg' => '#f0fdf4'],
+];
+
+$flagMap = [
+    'AC' => 'Bandeira_do_Acre.svg',
+    'AL' => 'Bandeira_de_Alagoas.svg',
+    'AM' => 'Bandeira_do_Amazonas.svg',
+    'AP' => 'Bandeira_do_Amap%C3%A1.svg',
+    'BA' => 'Bandeira_da_Bahia.svg',
+    'CE' => 'Bandeira_do_Cear%C3%A1.svg',
+    'DF' => 'Bandeira_do_Distrito_Federal_%28Brasil%29.svg',
+    'ES' => 'Bandeira_do_Esp%C3%ADrito_Santo.svg',
+    'GO' => 'Bandeira_de_Goi%C3%A1s.svg',
+    'MA' => 'Bandeira_do_Maranh%C3%A3o.svg',
+    'MG' => 'Bandeira_de_Minas_Gerais.svg',
+    'MS' => 'Bandeira_de_Mato_Grosso_do_Sul.svg',
+    'MT' => 'Bandeira_de_Mato_Grosso.svg',
+    'PA' => 'Bandeira_do_Par%C3%A1.svg',
+    'PB' => 'Bandeira_da_Para%C3%ADba.svg',
+    'PE' => 'Bandeira_de_Pernambuco.svg',
+    'PI' => 'Bandeira_do_Piau%C3%AD.svg',
+    'PR' => 'Bandeira_do_Paran%C3%A1.svg',
+    'RJ' => 'Bandeira_do_estado_do_Rio_de_Janeiro.svg',
+    'RN' => 'Bandeira_do_Rio_Grande_do_Norte.svg',
+    'RO' => 'Bandeira_de_Rond%C3%B4nia.svg',
+    'RR' => 'Bandeira_de_Roraima.svg',
+    'RS' => 'Bandeira_do_Rio_Grande_do_Sul.svg',
+    'SC' => 'Bandeira_de_Santa_Catarina.svg',
+    'SE' => 'Bandeira_de_Sergipe.svg',
+    'SP' => 'Bandeira_do_estado_de_S%C3%A3o_Paulo.svg',
+    'TO' => 'Bandeira_do_Tocantins.svg',
+];
 ?>
+<style>
+/* ── Grade de estados ── */
+.est-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px}
+@media(max-width:700px){.est-grid{grid-template-columns:1fr}}
+
+/* ── Card de estado ── */
+.est-card{background:#fff;border:1.5px solid #e5e7eb;border-radius:16px;overflow:hidden;transition:box-shadow .18s}
+.est-card:hover{box-shadow:0 4px 20px rgba(0,0,0,.08)}
+.est-card-head{display:flex;align-items:center;gap:14px;padding:16px 20px}
+.est-card[data-has-proj="true"] .est-card-head{cursor:pointer}
+.est-card[data-has-proj="true"] .est-card-head:hover{background:#fafafa}
+
+/* ── Bandeira ── */
+.est-flag-wrap{width:64px;height:42px;border-radius:8px;overflow:hidden;border:1.5px solid #e8e8e8;flex-shrink:0;background:#f0f0f0;position:relative}
+.est-flag{width:100%;height:100%;object-fit:cover;display:block}
+.est-uf-text{position:absolute;bottom:0;right:0;background:rgba(0,0,0,.52);color:#fff;font-size:9px;font-weight:800;padding:1px 4px;border-top-left-radius:5px;letter-spacing:.4px;line-height:1.5}
+.est-flag-wrap.flag-fallback{display:flex;align-items:center;justify-content:center;border-color:transparent}
+.est-flag-wrap.flag-fallback .est-flag{display:none}
+.est-flag-wrap.flag-fallback .est-uf-text{position:static;background:none;font-size:14px;font-weight:800;color:#fff;padding:0;border-radius:0;letter-spacing:.3px;line-height:1}
+
+/* ── Título e região ── */
+.est-card-title{font-size:15px;font-weight:700;color:#111827;margin-bottom:3px}
+.est-reg-badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;display:inline-block}
+
+/* ── Lado direito do header ── */
+.est-head-right{margin-left:auto;display:flex;align-items:center;gap:8px;flex-shrink:0}
+.est-proj-count{font-size:11px;font-weight:700;background:#f3f4f6;color:#6b7280;padding:3px 8px;border-radius:20px;line-height:1.4}
+.est-card-chevron{font-size:16px;color:#9ca3af;transition:transform .25s;line-height:1}
+.est-card[data-expanded="true"] .est-card-chevron{transform:rotate(180deg)}
+
+/* ── Lista de projetos (colapsável) ── */
+.est-projetos{border-top:1px solid #f3f4f6;display:none}
+.est-card[data-expanded="true"] .est-projetos{display:block}
+.est-proj-item{display:flex;align-items:center;gap:10px;padding:11px 20px;border-bottom:1px solid #f9fafb;transition:background .12s}
+.est-proj-item:last-child{border-bottom:none}
+.est-proj-item:hover{background:#fafafa}
+.est-proj-item.ativo{background:#f0fdf4}
+.est-proj-info{flex:1;min-width:0}
+.est-proj-nome{font-size:13px;font-weight:600;color:#111827;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.est-proj-meta{font-size:11px;color:#9ca3af;margin-top:1px}
+.est-proj-actions{display:flex;gap:6px;flex-shrink:0}
+.btn-sel{padding:5px 14px;background:#16a34a;color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;transition:background .15s;white-space:nowrap}
+.btn-sel:hover{background:#15803d}
+.btn-sel.loading{opacity:.6;pointer-events:none}
+.btn-sel-ativo{background:#dcfce7;color:#15803d;border:1.5px solid #bbf7d0}
+.btn-sel-ativo:hover{background:#bbf7d0}
+.btn-ed{padding:5px 10px;background:transparent;border:1.5px solid #e5e7eb;border-radius:7px;font-size:12px;font-weight:500;color:#6b7280;cursor:pointer;transition:all .15s}
+.btn-ed:hover{border-color:#9ca3af;color:#374151}
+.btn-del{padding:5px 8px;background:transparent;border:1.5px solid #fecaca;border-radius:7px;color:#dc2626;cursor:pointer;transition:all .15s;display:flex;align-items:center}
+.btn-del:hover{background:#fef2f2}
+.btn-ver-projs{padding:5px 14px;background:var(--accent,#16a34a);color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;text-decoration:none;transition:background .15s;white-space:nowrap;display:inline-block;line-height:1.6}
+.btn-ver-projs:hover{background:#15803d;color:#fff}
+
+/* ── Estado vazio (sempre visível) ── */
+.est-empty{padding:14px 20px;font-size:12px;color:#d1d5db;border-top:1px solid #f3f4f6;font-style:italic}
+</style>
 
 <div class="pg-wrap">
 
-  <!-- ════ Cabeçalho + ações na mesma linha ════ -->
   <div class="pg-head">
     <div>
-      <h1 class="pg-title">Meus Projetos</h1>
-      <p class="pg-sub">Gerencie e monitore suas casas legislativas</p>
+      <h1 class="pg-title">Projetos</h1>
+      <p class="pg-sub">Selecione um projeto para começar</p>
     </div>
     <div class="actions-row">
       <div class="search-wrap">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-        </svg>
-        <input type="text" id="searchInput" class="search-input" placeholder="Buscar projeto...">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="searchInput" class="search-input" placeholder="Buscar estado ou projeto...">
       </div>
       <?php if (Auth::isSuperAdmin()): ?>
       <button class="btn-novo" onclick="abrirModalNovo()">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <path d="M12 5v14M5 12h14"/>
-        </svg>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
         Novo Projeto
       </button>
       <?php endif; ?>
     </div>
   </div>
 
-  <!-- ════ Grid de cards ════ -->
-  <div class="cards-grid" id="cardsGrid">
+  <?php if (empty($estados) && empty($projetosPorUf['_sem_estado'])): ?>
+  <div class="empty-state" style="grid-column:1/-1">
+    <div class="es-icon">📁</div>
+    <h3>Nenhum projeto ainda</h3>
+    <p>Crie o primeiro projeto para começar.</p>
+    <?php if (Auth::isSuperAdmin()): ?>
+    <button class="es-btn" onclick="abrirModalNovo()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+      Criar primeiro projeto
+    </button>
+    <?php endif; ?>
+  </div>
 
-    <?php if (empty($projetos)): ?>
-    <div class="empty-state">
-      <div class="es-icon">📁</div>
-      <h3>Nenhum projeto ainda</h3>
-      <p>Crie seu primeiro projeto para começar a monitorar sua casa legislativa.</p>
-      <?php if (Auth::isSuperAdmin()): ?>
-      <button class="es-btn" onclick="abrirModalNovo()">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
-        Criar primeiro projeto
-      </button>
-      <?php endif; ?>
-    </div>
+  <?php else: ?>
+  <div class="est-grid" id="cardsGrid">
 
-    <?php else: ?>
-    <?php foreach ($projetos as $p): ?>
-    <?php
-      $ativo      = ((int)$p['id'] === (int)$projetoAtivo);
-      $parlCount  = $p['parl_count'] ?? 0;
-      $fonteLabel = $p['fonte_label'] ?? '—';
-      $clienteNome= $p['cliente_nome'] ?? null;
+    <?php foreach ($estados as $uf => $est):
+      $reg     = $regiaoMeta[$est['regiao']] ?? $regiaoMeta['SE'];
+      $projs   = $projetosPorUf[$uf] ?? [];
+      $temProj = !empty($projs);
+      if (!Auth::isSuperAdmin() && !$temProj) continue;
     ?>
-    <div class="proj-card <?= $ativo ? 'card-active' : '' ?>"
-         id="card-<?= $p['id'] ?>"
-         data-nome="<?= htmlspecialchars(strtolower($p['nome'])) ?>">
+    <?php $flagFile = $flagMap[$uf] ?? null; $isSA = Auth::isSuperAdmin(); ?>
+    <div class="est-card" data-search="<?= htmlspecialchars(strtolower($est['nome'] . ' ' . $uf)) ?>"
+         data-has-proj="<?= (!$isSA && $temProj) ? 'true' : 'false' ?>" data-expanded="false">
 
-      <!-- ── Topo do card ── -->
-      <div class="card-top">
-        <div class="card-folder">📁</div>
-        <div class="card-title-wrap">
-          <h3><?= htmlspecialchars($p['nome']) ?></h3>
-          <span class="card-fonte"><?= htmlspecialchars($fonteLabel) ?></span>
+      <div class="est-card-head" <?= (!$isSA && $temProj) ? 'onclick="toggleCard(this)"' : '' ?>>
+        <div class="est-flag-wrap<?= !$flagFile ? ' flag-fallback' : '' ?>"
+             data-color="<?= $reg['cor'] ?>"
+             <?= !$flagFile ? 'style="background:' . $reg['cor'] . '"' : '' ?>>
+          <?php if ($flagFile): ?>
+          <img class="est-flag"
+               src="<?= BASE_PATH ?>/public/assets/bandeiras/<?= strtolower($uf) ?>.png"
+               alt="<?= htmlspecialchars($uf) ?>" loading="lazy" onerror="estFlagError(this)">
+          <?php endif; ?>
+          <span class="est-uf-text"><?= htmlspecialchars($uf) ?></span>
         </div>
-        <?php if (Auth::isSuperAdmin() && $clienteNome): ?>
-        <span class="cliente-tag"><?= htmlspecialchars($clienteNome) ?></span>
-        <?php endif; ?>
+        <div>
+          <div class="est-card-title"><?= htmlspecialchars($est['nome']) ?></div>
+          <span class="est-reg-badge" style="background:<?= $reg['bg'] ?>;color:<?= $reg['cor'] ?>"><?= $reg['label'] ?></span>
+        </div>
+        <div class="est-head-right">
+          <?php if ($temProj): ?>
+          <span class="est-proj-count"><?= count($projs) ?></span>
+          <?php endif; ?>
+          <?php if ($isSA && $temProj): ?>
+          <a href="<?= BASE_PATH ?>/projetos/estado/<?= urlencode($uf) ?>" class="btn-ver-projs">Ver projetos</a>
+          <?php elseif ($temProj): ?>
+          <i class="ph ph-caret-down est-card-chevron"></i>
+          <?php endif; ?>
+        </div>
       </div>
 
-      <!-- ── Métricas ── -->
-      <div class="card-metrics">
-        <div class="metric-item">
-          <span class="metric-label">Parlamentares</span>
-          <span class="metric-value"><?= number_format($parlCount) ?></span>
+      <?php if (!$isSA && $temProj): ?>
+      <div class="est-projetos">
+        <?php foreach ($projs as $p):
+          $ativo = ((int)$p['id'] === (int)$projetoAtivo);
+          $parlCount = $p['parl_count'] ?? 0;
+          $clienteNome = $p['cliente_nome'] ?? null;
+        ?>
+        <div class="est-proj-item <?= $ativo ? 'ativo' : '' ?>"
+             data-search="<?= htmlspecialchars(strtolower($p['nome'])) ?>">
+          <div class="est-proj-info">
+            <span class="est-proj-nome"><?= htmlspecialchars($p['nome']) ?></span>
+            <span class="est-proj-meta">
+              <?= number_format($parlCount) ?> parlamentares<?= $clienteNome ? ' · ' . htmlspecialchars($clienteNome) : '' ?>
+            </span>
+          </div>
+          <div class="est-proj-actions">
+            <button class="btn-sel <?= $ativo ? 'btn-sel-ativo' : '' ?>"
+                    id="btn-select-<?= $p['id'] ?>"
+                    onclick="selecionarProjeto(<?= $p['id'] ?>, <?= htmlspecialchars(json_encode($p['nome'])) ?>)">
+              <?= $ativo ? 'Ativo' : 'Selecionar' ?>
+            </button>
+          </div>
         </div>
-        <div class="metric-item">
-          <span class="metric-label">Legislatura</span>
-          <span class="metric-value small">Atual</span>
-        </div>
-        <div class="metric-item">
-          <span class="metric-label">Fonte</span>
-          <span class="metric-value small"><?= htmlspecialchars($fonteLabel) ?></span>
-        </div>
+        <?php endforeach; ?>
       </div>
-
-      <!-- ── Rodapé ── -->
-      <div class="card-footer">
-        <?php if (Auth::isSuperAdmin()): ?>
-        <button class="btn-delete" onclick="confirmarExcluir(<?= $p['id'] ?>, <?= htmlspecialchars(json_encode($p['nome'])) ?>)">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
-          Excluir
-        </button>
-        <button class="btn-edit" onclick="abrirModalEditar(<?= $p['id'] ?>)">Editar</button>
-        <?php endif; ?>
-        <button class="btn-select"
-                onclick="selecionarProjeto(<?= $p['id'] ?>, <?= htmlspecialchars(json_encode($p['nome'])) ?>)"
-                id="btn-select-<?= $p['id'] ?>">
-          Selecionar
-        </button>
-      </div>
+      <?php endif; ?>
 
     </div>
     <?php endforeach; ?>
+
+    <?php /* Projetos sem UF definida (só visível para SuperAdmin) */
+    if (Auth::isSuperAdmin() && !empty($projetosPorUf['_sem_estado'])): ?>
+    <div class="est-card" data-search="sem estado" data-has-proj="true" data-expanded="false">
+      <div class="est-card-head" onclick="toggleCard(this)">
+        <div class="est-flag-wrap flag-fallback" style="background:#9ca3af" data-color="#9ca3af">
+          <span class="est-uf-text">?</span>
+        </div>
+        <div>
+          <div class="est-card-title">Sem estado definido</div>
+          <span class="est-reg-badge" style="background:#f3f4f6;color:#6b7280">Configure o estado no projeto</span>
+        </div>
+        <div class="est-head-right">
+          <span class="est-proj-count"><?= count($projetosPorUf['_sem_estado']) ?></span>
+          <i class="ph ph-caret-down est-card-chevron"></i>
+        </div>
+      </div>
+      <div class="est-projetos">
+        <?php foreach ($projetosPorUf['_sem_estado'] as $p):
+          $ativo = ((int)$p['id'] === (int)$projetoAtivo);
+          $parlCount = $p['parl_count'] ?? 0;
+          $clienteNome = $p['cliente_nome'] ?? null;
+        ?>
+        <div class="est-proj-item <?= $ativo ? 'ativo' : '' ?>">
+          <div class="est-proj-info">
+            <span class="est-proj-nome"><?= htmlspecialchars($p['nome']) ?></span>
+            <span class="est-proj-meta"><?= number_format($parlCount) ?> parlamentares<?= $clienteNome ? ' · ' . htmlspecialchars($clienteNome) : '' ?></span>
+          </div>
+          <div class="est-proj-actions">
+            <button class="btn-del" onclick="confirmarExcluir(<?= $p['id'] ?>, <?= htmlspecialchars(json_encode($p['nome'])) ?>)" title="Excluir">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+            </button>
+            <button class="btn-ed" onclick="abrirModalEditar(<?= $p['id'] ?>)">Editar</button>
+            <button class="btn-sel <?= $ativo ? 'btn-sel-ativo' : '' ?>"
+                    id="btn-select-<?= $p['id'] ?>"
+                    onclick="selecionarProjeto(<?= $p['id'] ?>, <?= htmlspecialchars(json_encode($p['nome'])) ?>)">
+              <?= $ativo ? 'Ativo' : 'Selecionar' ?>
+            </button>
+          </div>
+        </div>
+        <?php endforeach; ?>
+      </div>
+    </div>
     <?php endif; ?>
 
-  </div><!-- /cards-grid -->
+  </div><!-- /est-grid -->
+  <?php endif; ?>
+
 </div><!-- /pg-wrap -->
 
 
@@ -197,24 +327,31 @@ foreach ($fontes as $f) {
         <input type="text" id="fNome" placeholder="Ex: Monitoramento CMJP 2025">
       </div>
 
-      <!-- Fonte + URL -->
-      <div class="form-row">
+      <!-- Estado (UF) -->
+      <div class="form-row" id="blocoUf">
         <div class="fg">
-          <label>Fonte Legislativa <span style="color:#dc2626">*</span></label>
-          <select id="fFonte" onchange="onFonteChange()">
+          <label>Estado <span style="color:#dc2626">*</span></label>
+          <select id="fUf">
             <option value="">Selecione…</option>
-            <?php foreach ($fontes as $f): ?>
-            <option value="<?= $f['id'] ?>"
-                    data-url="<?= htmlspecialchars($f['url']) ?>">
-              <?= htmlspecialchars($f['label']) ?>
-            </option>
+            <?php
+            $ufsOpcoes = ['AC'=>'Acre','AL'=>'Alagoas','AM'=>'Amazonas','AP'=>'Amapá','BA'=>'Bahia',
+                'CE'=>'Ceará','DF'=>'Distrito Federal','ES'=>'Espírito Santo','GO'=>'Goiás',
+                'MA'=>'Maranhão','MG'=>'Minas Gerais','MS'=>'Mato Grosso do Sul','MT'=>'Mato Grosso',
+                'PA'=>'Pará','PB'=>'Paraíba','PE'=>'Pernambuco','PI'=>'Piauí','PR'=>'Paraná',
+                'RJ'=>'Rio de Janeiro','RN'=>'Rio Grande do Norte','RO'=>'Rondônia','RR'=>'Roraima',
+                'RS'=>'Rio Grande do Sul','SC'=>'Santa Catarina','SE'=>'Sergipe','SP'=>'São Paulo','TO'=>'Tocantins'];
+            foreach ($ufsOpcoes as $sigla => $nome):
+            ?>
+            <option value="<?= $sigla ?>"><?= $sigla ?> — <?= htmlspecialchars($nome) ?></option>
             <?php endforeach; ?>
           </select>
+          <span class="hint" id="ufHint" style="display:none">Preenchido automaticamente pela fonte selecionada.</span>
         </div>
-        <div class="fg">
-          <label>URL da Fonte</label>
-          <input type="text" id="fUrl" placeholder="Preenchida automaticamente" readonly
-                 style="background:#f9fafb;color:#6b7280">
+        <div class="fg" style="display:flex;align-items:flex-end;padding-bottom:4px">
+          <span style="font-size:12px;color:#6b7280;line-height:1.5">
+            Para fontes federais (Câmara, Senado), indica qual estado o projeto representa.<br>
+            Para fontes estaduais/municipais, é preenchido automaticamente.
+          </span>
         </div>
       </div>
 
@@ -245,21 +382,33 @@ foreach ($fontes as $f) {
         </button>
       </div>
 
-      <!-- Administradores com acesso (somente SuperAdmin, opcional) -->
-      <?php if (!empty($adminUsers)): ?>
+      <!-- Usuários com acesso (somente SuperAdmin) -->
+      <?php if (!empty($todoUsuarios)): ?>
       <div style="margin-top:20px">
-        <div class="section-label">Administradores com acesso</div>
-        <p style="font-size:12px;color:#6b7280;margin-bottom:10px">Opcional — define quais administradores do sistema podem visualizar este projeto.</p>
-        <div id="adminCheckList" style="display:flex;flex-direction:column;gap:8px">
-          <?php foreach ($adminUsers as $au): ?>
-          <label style="display:flex;align-items:center;gap:10px;padding:9px 12px;border:1.5px solid #e5e7eb;border-radius:9px;cursor:pointer;transition:border-color .15s;font-size:13px"
+        <div class="section-label">Usuários com acesso</div>
+        <p style="font-size:12px;color:#6b7280;margin-bottom:10px">Selecione quais usuários podem acessar este projeto. Um usuário pode estar em múltiplos projetos.</p>
+        <input type="text" id="usuarioSearch" placeholder="Filtrar usuários…"
+               style="width:100%;margin-bottom:10px;padding:7px 11px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:12px;box-sizing:border-box"
+               oninput="filtrarUsuarios(this.value)">
+        <div id="usuarioCheckList" style="display:flex;flex-direction:column;gap:6px;max-height:220px;overflow-y:auto;padding-right:4px">
+          <?php
+          $lastCliente = '__init__';
+          foreach ($todoUsuarios as $u):
+            $clienteLabel = $u['cliente_nome'] ?? 'Admins do sistema';
+            if ($clienteLabel !== $lastCliente):
+              $lastCliente = $clienteLabel;
+          ?>
+          <div class="usuario-group-label" style="font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.5px;padding:6px 4px 2px"><?= htmlspecialchars($clienteLabel) ?></div>
+          <?php endif; ?>
+          <label class="usuario-label" style="display:flex;align-items:center;gap:10px;padding:8px 12px;border:1.5px solid #e5e7eb;border-radius:9px;cursor:pointer;transition:border-color .15s;font-size:13px"
                  onmouseover="this.style.borderColor='#16a34a'" onmouseout="if(!this.querySelector('input').checked)this.style.borderColor='#e5e7eb'">
-            <input type="checkbox" class="admin-check" value="<?= $au['id'] ?>"
+            <input type="checkbox" class="usuario-check" value="<?= $u['id'] ?>"
+                   data-search="<?= htmlspecialchars(strtolower($u['nome'] . ' ' . $u['email'] . ' ' . $clienteLabel)) ?>"
                    style="width:16px;height:16px;accent-color:#16a34a;cursor:pointer;flex-shrink:0"
                    onchange="this.closest('label').style.borderColor=this.checked?'#16a34a':'#e5e7eb'">
-            <div>
-              <div style="font-weight:600;color:#111827"><?= htmlspecialchars($au['nome']) ?></div>
-              <div style="font-size:11px;color:#9ca3af"><?= htmlspecialchars($au['email']) ?></div>
+            <div style="min-width:0">
+              <div style="font-weight:600;color:#111827"><?= htmlspecialchars($u['nome']) ?></div>
+              <div style="font-size:11px;color:#9ca3af"><?= htmlspecialchars($u['email']) ?></div>
             </div>
           </label>
           <?php endforeach; ?>
@@ -288,15 +437,60 @@ const CSRF      = <?= json_encode(Auth::csrfToken()) ?>;
 const BASE_PATH = <?= json_encode(BASE_PATH) ?>;
 
 document.addEventListener('DOMContentLoaded', function() {
+  /* Auto-expande o card que contém o projeto atualmente ativo */
+  document.querySelectorAll('.est-proj-item.ativo').forEach(function(item) {
+    var card = item.closest('.est-card');
+    if (card) card.setAttribute('data-expanded', 'true');
+  });
   renderDashboards();
 });
+
+/* ─── Toggle do card (expandir / recolher) ─── */
+function toggleCard(headEl) {
+  var card = headEl.closest('.est-card');
+  if (!card || card.getAttribute('data-has-proj') !== 'true') return;
+  var expanded = card.getAttribute('data-expanded') === 'true';
+  card.setAttribute('data-expanded', expanded ? 'false' : 'true');
+}
+
+/* ─── Fallback de bandeira ─── */
+function estFlagError(img) {
+  var wrap = img.closest('.est-flag-wrap');
+  if (!wrap) return;
+  img.style.display = 'none';
+  wrap.classList.add('flag-fallback');
+  wrap.style.background = wrap.dataset.color || '#9ca3af';
+  wrap.style.borderColor = 'transparent';
+}
 
 /* ─── Busca (filtro client-side) ─── */
 document.getElementById('searchInput').addEventListener('input', function() {
   const q = this.value.toLowerCase().trim();
-  document.querySelectorAll('.proj-card').forEach(function(card) {
-    const nome = card.dataset.nome || '';
-    card.classList.toggle('hidden', q !== '' && !nome.includes(q));
+  document.querySelectorAll('.est-card').forEach(function(card) {
+    const stateSearch  = card.dataset.search || '';
+    const stateMatches = !q || stateSearch.includes(q);
+
+    let anyProjMatch = false;
+    card.querySelectorAll('.est-proj-item').forEach(function(item) {
+      const projSearch = item.dataset.search || '';
+      const match = stateMatches || projSearch.includes(q);
+      item.style.display = match ? '' : 'none';
+      if (match) anyProjMatch = true;
+    });
+
+    const visible = stateMatches || anyProjMatch;
+    card.style.display = visible ? '' : 'none';
+
+    /* Expande automaticamente quando houver busca com projeto encontrado */
+    if (card.getAttribute('data-has-proj') === 'true') {
+      if (q && anyProjMatch) {
+        card.setAttribute('data-expanded', 'true');
+      } else if (!q) {
+        /* Ao limpar a busca, recolhe — exceto o que tem projeto ativo */
+        const hasActive = !!card.querySelector('.est-proj-item.ativo');
+        card.setAttribute('data-expanded', hasActive ? 'true' : 'false');
+      }
+    }
   });
 });
 
@@ -332,11 +526,16 @@ function selecionarProjeto(id, nome) {
 }
 
 /* ─── Modal: abrir (novo projeto) ─── */
-function abrirModalNovo() {
+function abrirModalNovo(uf) {
   document.getElementById('modalTitulo').textContent = 'Novo Projeto';
   document.getElementById('modalProjetoId').value = '';
   limparFormModal();
   renderDashboards();
+  /* Pré-seleciona o estado quando chamado pelo botão "+" de um card */
+  if (uf) {
+    var fusel = document.getElementById('fUf');
+    if (fusel) fusel.value = uf;
+  }
   document.getElementById('modalOverlay').classList.add('open');
   setTimeout(function(){ document.getElementById('fNome').focus(); }, 200);
 }
@@ -353,23 +552,22 @@ function abrirModalEditar(id) {
     .then(function(p) {
       if (!p) return;
       document.getElementById('fNome').value    = p.nome || '';
-      document.getElementById('fUrl').value     = p.fonte_url || '';
       document.getElementById('fModelo').value  = p.openai_model || 'gpt-4o';
       /* Cliente (super admin) */
       const sel = document.getElementById('fCliente');
       if (sel) sel.value = p.cliente_id || '';
-      /* Fonte */
-      const fsel = document.getElementById('fFonte');
-      if (fsel) fsel.value = p.fonte_id || '';
+      /* UF */
+      const fusel = document.getElementById('fUf');
+      if (fusel) fusel.value = p.uf || '';
       /* Dashboards */
       dashboards = JSON.parse(p.dashboards_json || '[]');
       dashboards = dashboards.map(function(d){ return Object.assign({token:''}, d); });
       if (!dashboards.length) dashboards = [{ nome: 'Dashboard', url: '', icone: '📊', token: '' }];
       renderDashboards();
-      /* Administradores */
-      var adminIds = p.admin_ids || [];
-      document.querySelectorAll('.admin-check').forEach(function(cb){
-        var checked = adminIds.indexOf(parseInt(cb.value)) !== -1;
+      /* Usuários com acesso */
+      var usuarioIds = p.usuario_ids || [];
+      document.querySelectorAll('.usuario-check').forEach(function(cb){
+        var checked = usuarioIds.indexOf(parseInt(cb.value)) !== -1;
         cb.checked = checked;
         cb.closest('label').style.borderColor = checked ? '#16a34a' : '#e5e7eb';
       });
@@ -400,28 +598,24 @@ function setModoCliente(modo) {
 }
 
 function limparFormModal() {
-  ['fNome','fUrl','fApiKey','fNovoClienteNome'].forEach(function(id){
+  ['fNome','fApiKey','fNovoClienteNome'].forEach(function(id){
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
   const fc = document.getElementById('fCliente'); if (fc) fc.value = '';
-  const ff = document.getElementById('fFonte');   if (ff) ff.value = '';
+  const fu = document.getElementById('fUf');      if (fu) fu.value = '';
   const fm = document.getElementById('fModelo');  if (fm) fm.value = 'gpt-4o';
   document.getElementById('modalErro').classList.remove('show');
   dashboards = [{ nome: 'Dashboard', url: '', icone: '📊' }];
   setModoCliente('existente');
-  document.querySelectorAll('.admin-check').forEach(function(cb){
+  document.querySelectorAll('.usuario-check').forEach(function(cb){
     cb.checked = false;
     cb.closest('label').style.borderColor = '#e5e7eb';
   });
+  var us = document.getElementById('usuarioSearch');
+  if (us) { us.value = ''; filtrarUsuarios(''); }
 }
 
-/* ─── Auto-preenche URL ao selecionar fonte ─── */
-function onFonteChange() {
-  const sel = document.getElementById('fFonte');
-  const opt = sel.options[sel.selectedIndex];
-  document.getElementById('fUrl').value = opt ? (opt.dataset.url || '') : '';
-}
 
 /* ─── Dashboards dinâmicos ─── */
 var dashboards = [{ nome: 'Dashboard', url: '', icone: '📊', token: '' }];
@@ -492,6 +686,33 @@ function escHtml(str) {
   return String(str || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
+/* ─── Filtro de usuários no modal ─── */
+function filtrarUsuarios(q) {
+  q = q.toLowerCase().trim();
+  var lastGroup = null;
+  document.querySelectorAll('#usuarioCheckList > *').forEach(function(el) {
+    if (el.classList.contains('usuario-group-label')) {
+      lastGroup = el;
+      return;
+    }
+    if (!el.classList.contains('usuario-label')) return;
+    var cb = el.querySelector('.usuario-check');
+    var match = !q || (cb && cb.dataset.search && cb.dataset.search.includes(q));
+    el.style.display = match ? '' : 'none';
+  });
+  /* Esconde labels de grupo sem itens visíveis */
+  var groups = document.querySelectorAll('#usuarioCheckList .usuario-group-label');
+  groups.forEach(function(grp) {
+    var next = grp.nextElementSibling;
+    var hasVisible = false;
+    while (next && !next.classList.contains('usuario-group-label')) {
+      if (next.classList.contains('usuario-label') && next.style.display !== 'none') hasVisible = true;
+      next = next.nextElementSibling;
+    }
+    grp.style.display = hasVisible ? '' : 'none';
+  });
+}
+
 /* ─── Excluir projeto ─── */
 var _excluirId = null;
 
@@ -528,22 +749,15 @@ function salvarProjeto() {
   const btnSave = document.getElementById('btnSalvar');
   erroEl.classList.remove('show');
 
-  const id      = document.getElementById('modalProjetoId').value;
-  const nome    = document.getElementById('fNome').value.trim();
-  const fonteId = document.getElementById('fFonte').value;
-  const apiKey  = document.getElementById('fApiKey').value.trim();
-  const modelo  = document.getElementById('fModelo').value;
+  const id     = document.getElementById('modalProjetoId').value;
+  const nome   = document.getElementById('fNome').value.trim();
+  const apiKey = document.getElementById('fApiKey').value.trim();
+  const modelo = document.getElementById('fModelo').value;
 
   if (!nome) {
     erroEl.textContent = 'O nome do projeto é obrigatório.';
     erroEl.classList.add('show');
     document.getElementById('fNome').focus();
-    return;
-  }
-  if (!fonteId) {
-    erroEl.textContent = 'Selecione a fonte legislativa.';
-    erroEl.classList.add('show');
-    document.getElementById('fFonte').focus();
     return;
   }
 
@@ -587,18 +801,19 @@ function salvarProjeto() {
   }
 
   clientePromise.then(function(cliId) {
-    var adminIds = [];
-    document.querySelectorAll('.admin-check:checked').forEach(function(cb){ adminIds.push(parseInt(cb.value)); });
+    var usuarioIds = [];
+    document.querySelectorAll('.usuario-check:checked').forEach(function(cb){ usuarioIds.push(parseInt(cb.value)); });
 
+    const uf = (document.getElementById('fUf') || {}).value || '';
     const body = new URLSearchParams({
       _token:          CSRF,
       nome:            nome,
-      fonte_id:        fonteId,
+      uf:              uf,
       openai_key:      apiKey,
       openai_model:    modelo,
       dashboards_json: JSON.stringify(dashboards),
       cliente_id:      cliId || '',
-      admin_ids:       JSON.stringify(adminIds)
+      usuario_ids:     JSON.stringify(usuarioIds)
     });
     if (id) body.append('id', id);
 

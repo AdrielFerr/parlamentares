@@ -69,6 +69,14 @@ class Auth {
         return self::nivel() === 0;
     }
 
+    public static function setUfFilter(string $uf): void {
+        $_SESSION['uf_filter'] = strtoupper($uf);
+    }
+
+    public static function ufFilter(): string {
+        return $_SESSION['uf_filter'] ?? '';
+    }
+
     public static function csrfToken(): string {
         if (empty($_SESSION['csrf_token'])) {
             $_SESSION['csrf_token'] = bin2hex(random_bytes(32));

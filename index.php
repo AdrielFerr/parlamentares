@@ -32,6 +32,7 @@ require APP . '/Controllers/SentinelaController.php';
 require APP . '/Controllers/ApiController.php';
 require APP . '/Controllers/AdminController.php';
 require APP . '/Controllers/DashboardController.php';
+require APP . '/Controllers/EstadosController.php';
 
 session_start();
 
@@ -46,8 +47,14 @@ $router->add('POST', '/esqueci-senha',  'AuthController', 'forgot');
 $router->add('GET',  '/redefinir-senha','AuthController', 'resetForm');
 $router->add('POST', '/redefinir-senha','AuthController', 'reset');
 
+// Estados (nova tela de entrada)
+$router->add('GET',  '/estados',               'EstadosController',  'index');
+$router->add('GET',  '/estados/{uf}',          'EstadosController',  'show');
+$router->add('POST', '/estados/{uf}/selecionar','EstadosController',  'selecionar');
+
 // Projetos
 $router->add('GET',  '/projetos',              'ProjetosController', 'index');
+$router->add('GET',  '/projetos/estado/{uf}',  'ProjetosController', 'estadoProjetos');
 $router->add('POST', '/projetos/selecionar',   'ProjetosController', 'selecionar');
 $router->add('GET',  '/projetos/dados',        'ProjetosController', 'dados');
 $router->add('POST', '/projetos/ajax/criar',   'ProjetosController', 'ajaxCriar');
@@ -113,6 +120,7 @@ $router->add('GET',    '/api/extras',              'ApiController', 'extras');
 $router->add('POST',   '/api/extras',              'ApiController', 'extras');
 $router->add('PUT',    '/api/extras',              'ApiController', 'extras');
 $router->add('DELETE', '/api/extras',              'ApiController', 'extras');
+$router->add('GET',    '/api/financas',            'ApiController', 'financas');
 
 // Admin: Dados Manuais (SuperAdmin)
 $router->add('GET',  '/admin/extras',              'AdminController', 'extras');

@@ -22,11 +22,12 @@ $_faviconProj     = Configuracao::get('favicon_url', null, '');
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Meus Projetos — <?= htmlspecialchars($_tabTitleProj) ?></title>
+<title><?= htmlspecialchars($layoutTitle ?? 'Meus Projetos') ?> — <?= htmlspecialchars($_tabTitleProj) ?></title>
 <?php if ($_faviconProj): ?><link rel="icon" href="<?= htmlspecialchars(BASE_PATH . $_faviconProj) ?>?t=<?= filemtime(ROOT . $_faviconProj) ?>"><?php endif; ?>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700;1,14..32,400&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://unpkg.com/@phosphor-icons/web@2.1.1"></script>
 <style>
 /* ───────── Reset & Base ───────── */
 *{box-sizing:border-box;margin:0;padding:0}
@@ -205,6 +206,10 @@ input,select,textarea{font-family:inherit}
 
     <div class="dropdown" id="userDropdown">
       <div class="dd-label"><?= htmlspecialchars($nivel) ?></div>
+      <a href="<?= BASE_PATH ?>/estados">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        Ver estados
+      </a>
       <a href="<?= BASE_PATH ?>/admin">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
         Configurações

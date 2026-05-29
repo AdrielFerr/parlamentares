@@ -1,4 +1,16 @@
 <?php /* Projeto sempre vem da sessão — controller garante que está definido */ ?>
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+  <button onclick="window.location.href='<?= BASE_PATH ?>/parlamentares'"
+          style="display:inline-flex;align-items:center;gap:6px;padding:6px 13px;background:#fff;border:1.5px solid #e5e7eb;border-radius:9px;font-size:13px;font-weight:500;color:#374151;cursor:pointer;font-family:inherit;transition:all .15s"
+          onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
+          onmouseout="this.style.borderColor='#e5e7eb';this.style.color='#374151'">
+    <i class="ph ph-arrow-left" style="font-size:14px"></i> Cargos
+  </button>
+  <?php if (!empty($cargoLabel)): ?>
+  <span style="color:#d1d5db;font-size:14px">/</span>
+  <span style="font-size:13px;font-weight:600;color:#6b7280"><?= htmlspecialchars($cargoLabel) ?></span>
+  <?php endif; ?>
+</div>
 <!-- pageTitle / pageSub requeridos pelo app.js -->
 <h2 id="pageTitle" class="sr-only">Parlamentares</h2>
 <p id="pageSub" class="sr-only"></p>
@@ -227,6 +239,13 @@ td{color:#111827}
 .pg-dots{padding:8px 6px;color:var(--muted);font-size:13px}
 .dashboard-grid{display:flex;flex-direction:column;gap:20px}
 @media(max-width:900px){.chart-row{grid-template-columns:1fr 1fr}}
+/* Finanças do Estado */
+.fin-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px 20px}
+.fin-card-label{font-size:12px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.fin-card-value{font-size:22px;font-weight:700;color:var(--text);margin-bottom:4px;line-height:1.2}
+.fin-card-sub{font-size:12px;color:var(--text-secondary);margin-bottom:10px}
+.fin-bar-track{height:6px;background:var(--bg-secondary);border-radius:3px;overflow:hidden}
+.fin-bar-fill{height:100%;border-radius:3px;transition:width .5s ease}
 @media(max-width:640px){.chart-row{grid-template-columns:1fr}.profile-hero{flex-direction:column;align-items:center}}
 @media(max-width:768px){
   .grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
@@ -277,7 +296,8 @@ const APP_CONFIG = {
   openaiUrl:   "<?= htmlspecialchars(BASE_PATH) ?>/api/openai",
   csrf:        "<?= htmlspecialchars(Auth::csrfToken()) ?>",
   cacheVer:    "<?= base_convert((string)max(filemtime(ROOT.'/public/app.js'), filemtime(APP.'/Controllers/ApiController.php'), filemtime(ROOT.'/index.php')), 10, 36) ?>",
-  nivel:       <?= (int)Auth::nivel() ?>
+  nivel:       <?= (int)Auth::nivel() ?>,
+  ufFilter:    "<?= htmlspecialchars($ufFilter ?? '') ?>"
 };
 </script>
 <?php $appJsVer = max(filemtime(ROOT.'/public/app.js'), filemtime(APP.'/Controllers/ApiController.php'), filemtime(ROOT.'/index.php')); ?>
