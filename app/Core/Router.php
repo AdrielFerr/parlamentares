@@ -17,6 +17,7 @@ class Router {
         }
         if ($uri === '' || $uri === false) $uri = '/';
 
+        // First pass: exact matches
         foreach ($this->routes as $route) {
             if ($route['method'] === $method && $route['path'] === $uri) {
                 $ctrl = new $route['controller']();
@@ -25,9 +26,22 @@ class Router {
             }
         }
 
-        // Default: redirect to login or parlamentares
+        // Second pass: dynamic segments ({param})
+        foreach ($this->routes as $route) {
+            if ($route['method'] !== $method) continue;
+            if (!str_contains($route['path'], '{')) continue;
+            $pattern = preg_replace('/\{[^}]+\}/', '([^/]+)', $route['path']);
+            if (preg_match('#^' . $pattern . '$#', $uri, $matches)) {
+                array_shift($matches);
+                $ctrl = new $route['controller']();
+                $ctrl->{$route['action']}(...$matches);
+                return;
+            }
+        }
+
+        // Default: redirect to login or estados
         if ($uri === '/') {
-            header('Location: ' . BASE_PATH . (Auth::check() ? '/projetos' : '/login'));
+            header('Location: ' . BASE_PATH . (Auth::check() ? '/estados' : '/login'));
             exit;
         }
 

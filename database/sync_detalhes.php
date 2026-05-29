@@ -27,7 +27,7 @@ require APP  . '/Core/Database.php';
 require APP  . '/Core/SaplApi.php';
 require APP  . '/Models/SaplCache.php';
 
-const TTL     = 168;   // 7 dias em horas
+const TTL     = 0;     // 0 = permanente (sem expiração)
 const MAX_PAG = 100;   // páginas máximas por endpoint
 const DELAY   = 150;   // ms de pausa entre chamadas ao governo
 const CURL_TO = 8;     // segundos de timeout por requisição
