@@ -46,6 +46,16 @@ class ApiController extends Controller {
             exit;
         }
 
+        // Fonte sincronizada localmente: nunca faz requisição ao servidor do governo.
+        // Serve cache expirado se existir, senão retorna lista vazia.
+        if ($this->fonteOffline($source)) {
+            $stale = SaplCache::getStale($source, $cacheKey);
+            header('Content-Type: application/json; charset=utf-8');
+            header('X-Cache: OFFLINE');
+            echo $stale ?? json_encode(['count' => 0, 'next' => null, 'previous' => null, 'results' => []]);
+            exit;
+        }
+
         $body = SaplApi::getRaw($path, $source, $extra);
 
         // Só armazena respostas válidas
@@ -763,16 +773,20 @@ class ApiController extends Controller {
         $source = $_GET['source'] ?? DEFAULT_SOURCE;
         $db     = Database::connect();
 
+        $extraCols = $source === 'prefeitos'
+            ? ', pp.cd_municipio, pp.nm_municipio, pp.nm_rm'
+            : ', pd.coligacao_2022, pd.resultado_2022, pd.turno_2022';
         $st = $db->prepare(
-            "SELECT pp.sapl_id, pp.nome_completo, pp.nome_parlamentar, pp.partido_sigla, pp.uf,
+            "SELECT pp.sapl_id, pp.nome_completo, pp.nome_parlamentar, pp.partido_sigla, pp.uf, pp.tse_sq,
                     pp.fotografia_url, pp.email, pp.ativo, pp.titular,
                     pd.situacao, pd.biografia, pd.profissao, pd.escolaridade,
                     pd.homepage, pd.gabinete, pd.telefone,
-                    pd.data_nascimento, pd.municipio_nascimento, pd.uf_nascimento
+                    pd.data_nascimento, pd.municipio_nascimento, pd.uf_nascimento,
+                    pd.patrimonio{$extraCols}
              FROM parl_parlamentares pp
              LEFT JOIN parl_perfil_detalhe pd
                ON pd.source_key = pp.source_key AND pd.sapl_id = pp.sapl_id
-             WHERE pp.source_key = ? ORDER BY pp.nome_parlamentar"
+             WHERE pp.source_key = ? ORDER BY pp.nm_rm, pp.nm_municipio, pp.nome_parlamentar"
         );
         $st->execute([$source]);
         $parlamentares = array_map(fn($r) => [
@@ -795,30 +809,110 @@ class ApiController extends Controller {
             'data_nascimento'  => $r['data_nascimento'] ?? '',
             'municipio_nascimento' => $r['municipio_nascimento'] ?? '',
             'uf_nascimento'    => $r['uf_nascimento'] ?? '',
+            'patrimonio'       => $r['patrimonio']   !== null ? (float)$r['patrimonio'] : null,
+            'coligacao_2022'   => $r['coligacao_2022'] ?? null,
+            'resultado_2022'   => $r['resultado_2022'] ?? null,
+            'turno_2022'       => isset($r['turno_2022']) && $r['turno_2022'] !== null ? (int)$r['turno_2022'] : null,
+            'cd_municipio'     => isset($r['cd_municipio']) ? (int)$r['cd_municipio'] : null,
+            'nm_municipio'     => $r['nm_municipio'] ?? null,
+            'nm_rm'            => $r['nm_rm'] ?? null,
         ], $st->fetchAll(PDO::FETCH_ASSOC));
 
-        $st = $db->prepare(
-            "SELECT sapl_id, numero, data_inicio, data_fim
-             FROM parl_legislaturas WHERE source_key = ? ORDER BY numero DESC"
+        // Redes sociais — indexadas por sapl_id para merge posterior
+        $stRedes = $db->prepare(
+            "SELECT sapl_id, plataforma, url FROM parl_redes_sociais WHERE source_key = ?"
         );
-        $st->execute([$source]);
-        $legislaturas = array_map(fn($r) => [
-            'id'          => (int)$r['sapl_id'],
-            'numero'      => (int)$r['numero'],
-            'data_inicio' => $r['data_inicio'],
-            'data_fim'    => $r['data_fim'],
-        ], $st->fetchAll(PDO::FETCH_ASSOC));
+        $stRedes->execute([$source]);
+        $redesMap = [];
+        foreach ($stRedes->fetchAll(PDO::FETCH_ASSOC) as $rd) {
+            $redesMap[(int)$rd['sapl_id']][] = ['plataforma' => $rd['plataforma'], 'url' => $rd['url']];
+        }
+        foreach ($parlamentares as &$parl) {
+            $parl['redes_sociais'] = $redesMap[$parl['id']] ?? [];
+        }
+        unset($parl);
 
-        $st = $db->prepare(
-            "SELECT sapl_id, sigla, nome
-             FROM parl_partidos WHERE source_key = ? ORDER BY sigla"
+        // Mandatos históricos (governadores) — indexados por sapl_id
+        $stMandatos = $db->prepare(
+            "SELECT sapl_id, ano_eleicao, periodo_ini, periodo_fim, turno, coligacao, resultado, votos, pct_votos
+             FROM parl_mandatos_gov WHERE source_key = ? ORDER BY ano_eleicao DESC"
         );
-        $st->execute([$source]);
-        $partidos = array_map(fn($r) => [
-            'id'    => (int)$r['sapl_id'],
-            'sigla' => $r['sigla'],
-            'nome'  => $r['nome'],
-        ], $st->fetchAll(PDO::FETCH_ASSOC));
+        $stMandatos->execute([$source]);
+        $mandatosMap = [];
+        foreach ($stMandatos->fetchAll(PDO::FETCH_ASSOC) as $m) {
+            $mandatosMap[(int)$m['sapl_id']][] = [
+                'ano_eleicao' => (int)$m['ano_eleicao'],
+                'periodo_ini' => (int)$m['periodo_ini'],
+                'periodo_fim' => (int)$m['periodo_fim'],
+                'turno'       => $m['turno'] !== null ? (int)$m['turno'] : null,
+                'coligacao'   => $m['coligacao'],
+                'resultado'   => $m['resultado'],
+                'votos'       => $m['votos'] !== null ? (int)$m['votos'] : null,
+                'pct_votos'   => $m['pct_votos'] !== null ? (float)$m['pct_votos'] : null,
+            ];
+        }
+        foreach ($parlamentares as &$parl) {
+            if (!empty($mandatosMap[$parl['id']])) {
+                $parl['mandatos_gov'] = $mandatosMap[$parl['id']];
+            }
+        }
+        unset($parl);
+
+        // Mandatos de prefeitos
+        if ($source === 'prefeitos') {
+            $stMandPref = $db->prepare(
+                "SELECT sapl_id, ano_eleicao, periodo_ini, periodo_fim, turno, coligacao, resultado, votos, pct_votos
+                 FROM parl_mandatos_pref WHERE source_key = 'prefeitos' ORDER BY ano_eleicao DESC"
+            );
+            $stMandPref->execute();
+            $mandPrefMap = [];
+            foreach ($stMandPref->fetchAll(PDO::FETCH_ASSOC) as $m) {
+                $mandPrefMap[(int)$m['sapl_id']][] = [
+                    'ano_eleicao' => (int)$m['ano_eleicao'],
+                    'periodo_ini' => (int)$m['periodo_ini'],
+                    'periodo_fim' => (int)$m['periodo_fim'],
+                    'turno'       => $m['turno'] !== null ? (int)$m['turno'] : null,
+                    'coligacao'   => $m['coligacao'],
+                    'resultado'   => $m['resultado'],
+                    'votos'       => $m['votos'] !== null ? (int)$m['votos'] : null,
+                    'pct_votos'   => $m['pct_votos'] !== null ? (float)$m['pct_votos'] : null,
+                ];
+            }
+            foreach ($parlamentares as &$parl) {
+                if (!empty($mandPrefMap[$parl['id']])) {
+                    $parl['mandatos_pref'] = $mandPrefMap[$parl['id']];
+                }
+            }
+            unset($parl);
+        }
+
+        $legislaturas = [];
+        $partidos     = [];
+
+        if ($source !== 'prefeitos') {
+            $st = $db->prepare(
+                "SELECT sapl_id, numero, data_inicio, data_fim
+                 FROM parl_legislaturas WHERE source_key = ? ORDER BY numero DESC"
+            );
+            $st->execute([$source]);
+            $legislaturas = array_map(fn($r) => [
+                'id'          => (int)$r['sapl_id'],
+                'numero'      => (int)$r['numero'],
+                'data_inicio' => $r['data_inicio'],
+                'data_fim'    => $r['data_fim'],
+            ], $st->fetchAll(PDO::FETCH_ASSOC));
+
+            $st = $db->prepare(
+                "SELECT sapl_id, sigla, nome
+                 FROM parl_partidos WHERE source_key = ? ORDER BY sigla"
+            );
+            $st->execute([$source]);
+            $partidos = array_map(fn($r) => [
+                'id'    => (int)$r['sapl_id'],
+                'sigla' => $r['sigla'],
+                'nome'  => $r['nome'],
+            ], $st->fetchAll(PDO::FETCH_ASSOC));
+        }
 
         $this->json([
             'parlamentares' => $parlamentares,
@@ -1930,6 +2024,15 @@ class ApiController extends Controller {
         $this->json(['ok' => true]);
     }
 
+    private static array $offlineCache = [];
+    private function fonteOffline(string $source): bool {
+        if (isset(self::$offlineCache[$source])) return self::$offlineCache[$source];
+        $db = Database::connect();
+        $st = $db->prepare("SELECT detalhes_em FROM fonte_sincs WHERE source_key = ? AND detalhes_em IS NOT NULL LIMIT 1");
+        $st->execute([$source]);
+        return self::$offlineCache[$source] = ($st->fetchColumn() !== false);
+    }
+
     public function img(): void {
         $this->requireAuth();
         session_write_close(); // libera lock de sessão para não bloquear requisições paralelas
@@ -2225,5 +2328,120 @@ class ApiController extends Controller {
         }
 
         $this->json(['error' => 'Método não suportado'], 405);
+    }
+
+    // ── Finanças do Estado (SICONFI/STN) ─────────────────────────────────────
+    public function financas(): void {
+        $this->requireAuth();
+        session_write_close();
+
+        $saplId = (int)($_GET['sapl_id'] ?? 0);
+        if (!$saplId) { $this->json(['error' => 'sapl_id obrigatório'], 400); return; }
+
+        $db  = Database::connect();
+        $gov = $db->prepare(
+            "SELECT uf FROM parl_parlamentares WHERE source_key='governadores' AND sapl_id=? LIMIT 1"
+        );
+        $gov->execute([$saplId]);
+        $row = $gov->fetch(PDO::FETCH_ASSOC);
+        if (!$row) { $this->json(['error' => 'Governador não encontrado'], 404); return; }
+
+        $uf = $row['uf'];
+
+        // Mapeamento UF → cod_ibge (2 dígitos IBGE para estados)
+        $ibge = [
+            'AC'=>12,'AL'=>27,'AM'=>13,'AP'=>16,'BA'=>29,'CE'=>23,'DF'=>53,
+            'ES'=>32,'GO'=>52,'MA'=>21,'MG'=>31,'MS'=>50,'MT'=>51,'PA'=>15,
+            'PB'=>25,'PE'=>26,'PI'=>22,'PR'=>41,'RJ'=>33,'RN'=>24,'RO'=>11,
+            'RR'=>14,'RS'=>43,'SC'=>42,'SE'=>28,'SP'=>35,'TO'=>17,
+        ];
+        $idEnte = $ibge[$uf] ?? null;
+        if (!$idEnte) { $this->json(['error' => 'UF sem mapeamento IBGE'], 500); return; }
+
+        // Cache: arquivo temporário por UF+ano+periodo, TTL 24h
+        $cacheDir = sys_get_temp_dir() . '/siconfi_cache';
+        if (!is_dir($cacheDir)) mkdir($cacheDir, 0755, true);
+
+        // Tenta o ano atual e os 2 anteriores (SICONFI publica com ~2 meses de atraso)
+        $anosParaTentar = [(int)date('Y'), (int)date('Y') - 1, (int)date('Y') - 2];
+        $cacheKey = null;
+        $cached   = null;
+
+        foreach ($anosParaTentar as $anoTry) {
+            for ($p = 6; $p >= 1; $p--) {
+                $f = "$cacheDir/rreo_{$uf}_{$anoTry}_{$p}.json";
+                if (file_exists($f) && (time() - filemtime($f)) < 86400) {
+                    $cached = json_decode(file_get_contents($f), true);
+                    if ($cached) { $cacheKey = $f; break 2; }
+                }
+            }
+        }
+
+        if (!$cached) {
+            // Busca SICONFI — tenta ano atual → anteriores, bimestre mais recente → mais antigo
+            $dados = null; $ano = null; $periodo = null;
+            foreach ($anosParaTentar as $anoTry) {
+                for ($p = 6; $p >= 1; $p--) {
+                    $url = "https://apidatalake.tesouro.gov.br/ords/siconfi/tt/rreo"
+                        . "?an_exercicio={$anoTry}&in_periodicidade=B&nr_periodo={$p}"
+                        . "&co_tipo_demonstrativo=RREO&id_ente={$idEnte}";
+                    $ch = curl_init($url);
+                    curl_setopt_array($ch, [
+                        CURLOPT_RETURNTRANSFER => true, CURLOPT_FOLLOWLOCATION => true,
+                        CURLOPT_TIMEOUT => 20, CURLOPT_SSL_VERIFYPEER => false,
+                        CURLOPT_USERAGENT => 'Mozilla/5.0 (compatible; keekconecta/1.0)',
+                    ]);
+                    $resp = curl_exec($ch);
+                    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                    curl_close($ch);
+                    if ($code !== 200 || !$resp) continue;
+                    $json = json_decode($resp, true);
+                    if (empty($json['items'])) continue;
+                    $dados = $json['items']; $ano = $anoTry; $periodo = $p;
+                    $cacheKey = "$cacheDir/rreo_{$uf}_{$anoTry}_{$p}.json";
+                    break 2;
+                }
+            }
+            if (!$dados) { $this->json(['error' => 'SICONFI sem dados para esta UF'], 503); return; }
+
+            // Indexa por [anexo][cod_conta][coluna]
+            $idx = [];
+            foreach ($dados as $r) {
+                $idx[$r['anexo']][$r['cod_conta']][$r['coluna']] = (float)$r['valor'];
+            }
+
+            $get = fn(string $anx, string $cod, string $col): ?float
+                => $idx[$anx][$cod][$col] ?? null;
+
+            $bimestreNome = match($periodo) {
+                1=>'Fev',2=>'Abr',3=>'Jun',4=>'Ago',5=>'Out',6=>'Dez', default=>''
+            };
+
+            $cached = [
+                'periodo'        => $periodo,
+                'ano'            => $ano,
+                'periodo_label'  => "{$periodo}º bimestre/{$ano} (até {$bimestreNome})",
+                'uf'             => $uf,
+                // Receitas (Anexo 01)
+                'receita_prevista'  => $get('RREO-Anexo 01','ReceitasExcetoIntraOrcamentarias','PREVISÃO ATUALIZADA (a)'),
+                'receita_realizada' => $get('RREO-Anexo 01','ReceitasExcetoIntraOrcamentarias','Até o Bimestre (c)'),
+                // Despesas (Anexo 02)
+                'despesa_dotacao'   => $get('RREO-Anexo 02','RREO2TotalDespesas','DOTAÇÃO ATUALIZADA (a)')
+                                    ?? $get('RREO-Anexo 02','TotalDespesas','DOTAÇÃO ATUALIZADA (a)'),
+                'despesa_liquidada' => $get('RREO-Anexo 02','RREO2TotalDespesas','DESPESAS LIQUIDADAS ATÉ O BIMESTRE (d)')
+                                    ?? $get('RREO-Anexo 02','TotalDespesas','DESPESAS LIQUIDADAS ATÉ O BIMESTRE (d)'),
+                // Resultado primário e dívida (Anexo 06)
+                'resultado_primario'     => $get('RREO-Anexo 06','ResultadoPrimarioComRPPSAcimaDaLinha','VALOR'),
+                'divida_consolidada_liq' => $get('RREO-Anexo 06','DividaConsolidadaLiquida',"Até o Bimestre {$ano} (b)")
+                                         ?? $get('RREO-Anexo 06','DividaConsolidadaLiquida','Até o Bimestre (b)'),
+                // Pessoal (Anexo 06)
+                'pessoal_despesa'        => $get('RREO-Anexo 06','RREO6PessoalEEncargosSociais','DESPESAS LIQUIDADAS')
+                                         ?? $get('RREO-Anexo 06','RREO6PessoalEEncargosSociais','DOTAÇÃO ATUALIZADA'),
+            ];
+
+            file_put_contents($cacheKey, json_encode($cached));
+        }
+
+        $this->json($cached);
     }
 }
