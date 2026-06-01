@@ -15,12 +15,14 @@ $corAvatar = $paleta[abs(crc32($userNome)) % count($paleta)];
 // Branding dinâmico — cliente derivado do projeto ativo
 $_clienteIdForBranding = null;
 $_projetoSourceKey = '';
+$_projetoUf = '';
 $_projetoId = Auth::projetoId();
 if ($_projetoId) {
     $_proj = (new Projeto())->findComFonte((int)$_projetoId);
     if ($_proj) {
         $_clienteIdForBranding = (int)$_proj['cliente_id'];
         $_projetoSourceKey = $_proj['source_key'] ?? '';
+        $_projetoUf = strtoupper($_proj['uf'] ?? '');
     }
 }
 $_cssVars     = Configuracao::getCssVars($_clienteIdForBranding);
@@ -244,9 +246,11 @@ body.sidebar-collapsed .sidebar-logo img{max-width:34px!important;max-height:34p
     <?php endforeach; ?>
     <?php endif; ?>
 
+    <?php if ($_projetoUf === 'RJ'): ?>
     <a href="<?= BASE_PATH ?>/parlamentares<?= $_projetoSourceKey ? '?cargo=' . urlencode($_projetoSourceKey) : '' ?>#dashboard-global" data-nav="producao-legislativa" class="nav-item">
       <span class="nav-icon"><i class="ph ph-chart-pie-slice"></i></span> Produção Legislativa
     </a>
+    <?php endif; ?>
     <a href="<?= BASE_PATH ?>/parlamentares" data-nav="parlamentares" class="nav-item <?= str_contains($_requestPath, BASE_PATH . '/parlamentares') ? 'active' : '' ?>">
       <span class="nav-icon"><i class="ph ph-buildings"></i></span> Parlamentares
     </a>
