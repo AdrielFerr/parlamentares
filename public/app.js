@@ -2805,6 +2805,7 @@ async function agenteHistoryLoad(parlId) {
 
 async function renderTabAgente(p) {
   const isCamaraAg = APP_CONFIG.source==='camara_federal';
+  const isGovOnly  = ['governadores','prefeitos'].includes(APP_CONFIG.source);
   let allMat = [], allNorm = [], comissoes = [], filiacoes = [], mandatos = [], frentes = [], emendas = [], relatorias = [], pacItens = [];
   try {
     const ctxData = await getCached(p.id, 'agente_contexto_all', () => fetchAgenteContextoParlamentar(p.id));
@@ -3032,12 +3033,17 @@ async function renderTabAgente(p) {
     comissoes.length ? 'comissões e participação' : '',
     frentes.length  ? 'frentes parlamentares' : '',
   ].filter(Boolean);
-  h+=`<div class="agente-msg"><div class="agente-av ia">IA</div><div class="agente-bubble ia"><p>Olá! Sou o Agente IA de análise legislativa. Tenho dados completos de <strong>${esc(nomeParlamentar)}</strong> sobre: ${welcomeExtras.join(', ')||'produção legislativa'}.</p><p>Posso analisar ranking por tema, produtividade por ano, buscar proposições específicas, comparar períodos e muito mais.</p></div></div>`;
+  const welcomeMsg = isGovOnly
+    ? `<p>Olá! Sou o Agente IA. Tenho dados de <strong>${esc(nomeParlamentar)}</strong> sobre: mandatos e finanças do estado.</p><p>Posso responder perguntas sobre o histórico de mandatos e dados financeiros do estado.</p>`
+    : `<p>Olá! Sou o Agente IA de análise legislativa. Tenho dados completos de <strong>${esc(nomeParlamentar)}</strong> sobre: ${welcomeExtras.join(', ')||'produção legislativa'}.</p><p>Posso analisar ranking por tema, produtividade por ano, buscar proposições específicas, comparar períodos e muito mais.</p>`;
+  h+=`<div class="agente-msg"><div class="agente-av ia">IA</div><div class="agente-bubble ia">${welcomeMsg}</div></div>`;
   h+='</div>';
   h+='<div class="agente-input-bar">';
-  const agentePlaceholder = isCamaraAg
-    ? `Pergunte sobre proposições, normas sancionadas, emendas${pacItens.length?', Novo PAC':''}, comissões, frentes...`
-    : 'Pergunte sobre matérias, normas, comissões, frentes...';
+  const agentePlaceholder = isGovOnly
+    ? 'Pergunte sobre mandatos, finanças do estado...'
+    : isCamaraAg
+      ? `Pergunte sobre proposições, normas sancionadas, emendas${pacItens.length?', Novo PAC':''}, comissões, frentes...`
+      : 'Pergunte sobre matérias, normas, comissões, frentes...';
   h+=`<textarea id="agenteInput" class="agente-textarea" placeholder="${agentePlaceholder}" onkeydown="agenteKeydown(event)" oninput="this.style.height='40px';this.style.height=Math.min(this.scrollHeight,120)+'px'"></textarea>`;
   h+='<button id="agenteSend" class="agente-send" onclick="agenteSend()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>';
   h+='</div></div></div>';
