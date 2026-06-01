@@ -12,8 +12,11 @@ RUN sed -i '/<Directory \/var\/www\/>/,/<\/Directory>/ s/AllowOverride None/Allo
 # Copia o app (exceto o que está no .dockerignore)
 COPY . /var/www/html/
 
-# Guarda cópia das fotos para seed do volume em runtime
-RUN cp -r /var/www/html/public/uploads /var/www/html/public/uploads_seed
+# Garante que os diretórios de uploads existam (uploads pode não vir no build CI)
+RUN mkdir -p /var/www/html/public/uploads /var/www/html/public/uploads_seed \
+    && { [ "$(ls -A /var/www/html/public/uploads 2>/dev/null)" ] \
+         && cp -rn /var/www/html/public/uploads/. /var/www/html/public/uploads_seed/ \
+         || true; }
 
 # Permissões
 RUN chown -R www-data:www-data /var/www/html \
