@@ -15,9 +15,13 @@ $corAvatar = $paleta[abs(crc32($userNome)) % count($paleta)];
 // Branding dinâmico — cliente derivado do projeto ativo
 $_clienteIdForBranding = null;
 $_projetoId = Auth::projetoId();
+$_projetoSourceKey = '';
 if ($_projetoId) {
-    $_proj = (new Projeto())->find((int)$_projetoId);
-    if ($_proj) $_clienteIdForBranding = (int)$_proj['cliente_id'];
+    $_proj = (new Projeto())->findComFonte((int)$_projetoId);
+    if ($_proj) {
+        $_clienteIdForBranding = (int)$_proj['cliente_id'];
+        $_projetoSourceKey = $_proj['source_key'] ?? '';
+    }
 }
 $_cssVars     = Configuracao::getCssVars($_clienteIdForBranding);
 $_logoUrl     = Configuracao::logoUrl($_clienteIdForBranding);
@@ -240,7 +244,7 @@ body.sidebar-collapsed .sidebar-logo img{max-width:34px!important;max-height:34p
     <?php endforeach; ?>
     <?php endif; ?>
 
-    <a href="<?= BASE_PATH ?>/parlamentares#dashboard-global" data-nav="producao-legislativa" class="nav-item">
+    <a href="<?= BASE_PATH ?>/parlamentares<?= $_projetoSourceKey ? '?cargo=' . urlencode($_projetoSourceKey) : '' ?>#dashboard-global" data-nav="producao-legislativa" class="nav-item">
       <span class="nav-icon"><i class="ph ph-chart-pie-slice"></i></span> Produção Legislativa
     </a>
     <a href="<?= BASE_PATH ?>/parlamentares" data-nav="parlamentares" class="nav-item <?= str_contains($_requestPath, BASE_PATH . '/parlamentares') ? 'active' : '' ?>">
