@@ -89,26 +89,64 @@ class ParlamentaresController extends Controller {
             $cargos[] = $meta['dep_estadual'];
         }
 
-        /* Prefeito — placeholder sempre */
-        $cargos[] = $meta['prefeito'];
+        /* Prefeito — sempre em andamento (dados incompletos) */
+        $p = $meta['prefeito'];
+        $p['total']  = 0;
+        $p['status'] = 'andamento';
+        $cargos[] = $p;
 
-        /* Conta parlamentares por cargo */
+        /* Conta parlamentares por cargo — via legislatura atual (consistente com a lista) */
+        $stLegAtual = $db->prepare(
+            "SELECT sapl_id FROM parl_legislaturas WHERE source_key=? ORDER BY numero DESC LIMIT 1"
+        );
+
         foreach ($cargos as &$c) {
             $key = $c['key'];
 
-            /* Chaves sem fonte real → sempre em andamento */
-            if (in_array($key, ['dep_estadual', 'vereadores'])) {
+            /* Chaves forçadas em andamento */
+            if (in_array($key, ['dep_estadual', 'vereadores', 'prefeitos'])) {
                 $c['total']  = 0;
                 $c['status'] = 'andamento';
                 continue;
             }
 
-            if (in_array($key, ['camara_federal', 'senado', 'governadores', 'prefeitos']) && $uf) {
-                $st = $db->prepare("SELECT COUNT(*) FROM parl_parlamentares WHERE source_key=? AND uf=?");
-                $st->execute([$key, $uf]);
+            $stLegAtual->execute([$key]);
+            $legId = $stLegAtual->fetchColumn();
+
+            if ($legId !== false) {
+                /* Conta mandatos da legislatura mais recente com ativo=1 (igual ao frontend) */
+                if (in_array($key, ['camara_federal', 'senado', 'governadores']) && $uf) {
+                    $st = $db->prepare(
+                        "SELECT COUNT(DISTINCT m.parlamentar_id)
+                         FROM parl_mandatos m
+                         JOIN parl_parlamentares p
+                           ON p.sapl_id = m.parlamentar_id AND p.source_key = m.source_key
+                         WHERE m.source_key = ? AND m.legislatura_id = ? AND p.uf = ? AND p.ativo = 1"
+                    );
+                    $st->execute([$key, $legId, $uf]);
+                } else {
+                    $st = $db->prepare(
+                        "SELECT COUNT(DISTINCT m.parlamentar_id)
+                         FROM parl_mandatos m
+                         JOIN parl_parlamentares p
+                           ON p.sapl_id = m.parlamentar_id AND p.source_key = m.source_key
+                         WHERE m.source_key = ? AND m.legislatura_id = ? AND p.ativo = 1"
+                    );
+                    $st->execute([$key, $legId]);
+                }
             } else {
-                $st = $db->prepare("SELECT COUNT(*) FROM parl_parlamentares WHERE source_key=?");
-                $st->execute([$key]);
+                /* Fallback: sem legislaturas cadastradas */
+                if (in_array($key, ['camara_federal', 'senado', 'governadores']) && $uf) {
+                    $st = $db->prepare(
+                        "SELECT COUNT(*) FROM parl_parlamentares WHERE source_key=? AND uf=? AND ativo=1"
+                    );
+                    $st->execute([$key, $uf]);
+                } else {
+                    $st = $db->prepare(
+                        "SELECT COUNT(*) FROM parl_parlamentares WHERE source_key=? AND ativo=1"
+                    );
+                    $st->execute([$key]);
+                }
             }
 
             $total       = (int)$st->fetchColumn();
