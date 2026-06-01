@@ -665,6 +665,8 @@ $migracoes3 = [
     "ALTER TABLE parl_perfil_detalhe ADD COLUMN IF NOT EXISTS turno_2022     TINYINT UNSIGNED  NULL AFTER resultado_2022",
     // projetos — fonte_id opcional
     "ALTER TABLE projetos MODIFY COLUMN fonte_id INT UNSIGNED NULL DEFAULT NULL",
+    // projetos — uf do estado que o projeto representa
+    "ALTER TABLE projetos ADD COLUMN IF NOT EXISTS uf VARCHAR(2) NOT NULL DEFAULT '' AFTER fonte_id",
 ];
 foreach ($migracoes3 as $sql) {
     try { $pdo->exec($sql); } catch (PDOException $e) { /* já existe */ }

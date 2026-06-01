@@ -103,11 +103,6 @@ $ufLower = strtolower($uf);
     <div class="ep-proj-card <?= $ativo ? 'ativo' : '' ?>" id="ep-card-<?= $p['id'] ?>">
       <div class="ep-proj-info">
         <span class="ep-proj-nome"><?= htmlspecialchars($p['nome']) ?></span>
-        <span class="ep-proj-meta">
-          <?= number_format($parlCount) ?> parlamentares
-          <?= $clienteNome ? ' · ' . htmlspecialchars($clienteNome) : '' ?>
-          <?= !empty($p['fonte_label']) ? ' · ' . htmlspecialchars($p['fonte_label']) : '' ?>
-        </span>
       </div>
       <div class="ep-proj-actions">
         <button class="btn-del" onclick="confirmarExcluir(<?= $p['id'] ?>, <?= htmlspecialchars(json_encode($p['nome'])) ?>)" title="Excluir">

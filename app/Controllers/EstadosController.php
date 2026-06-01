@@ -9,7 +9,7 @@ class EstadosController extends Controller {
         Auth::setProjeto(0, '', '[]');
         Auth::setUfFilter('');
 
-        $db          = Database::get();
+        $db          = Database::connect();
         $extrasMap   = require ROOT . '/config/estados.php'; // fontes extras por UF
         $sourceUfMap = $this->buildSourceUfMapFromExtras($extrasMap);
 
@@ -77,7 +77,7 @@ class EstadosController extends Controller {
         $this->requireAuth();
 
         $uf        = strtoupper($uf);
-        $db        = Database::get();
+        $db        = Database::connect();
         $extrasMap = require ROOT . '/config/estados.php';
 
         $row = $db->prepare("SELECT uf, nome, regiao FROM estados WHERE uf=? AND ativo=1");
@@ -138,7 +138,7 @@ class EstadosController extends Controller {
             return;
         }
 
-        $db        = Database::get();
+        $db        = Database::connect();
         $extrasMap = require ROOT . '/config/estados.php';
 
         $row = $db->prepare("SELECT uf FROM estados WHERE uf=? AND ativo=1");
