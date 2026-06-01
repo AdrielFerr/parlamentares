@@ -20,13 +20,8 @@ class ParlamentaresController extends Controller {
         $cargoKey = trim($_GET['cargo'] ?? '');
         $uf       = strtoupper($projeto['uf'] ?? '');
 
-        /* Sem cargo selecionado → usa source_key do projeto (para dashboard-global via nav) ou tela de seleção */
+        /* Sem cargo selecionado → tela de seleção */
         if (!$cargoKey) {
-            $defaultSource = $projeto['source_key'] ?? '';
-            if ($defaultSource) {
-                $this->redirect('/parlamentares?cargo=' . urlencode($defaultSource));
-                return;
-            }
             $extrasMap = require ROOT . '/config/estados.php';
             $cargos    = $this->buildCargosForState($uf, $extrasMap);
             $this->render('parlamentares/cargos', compact('projeto', 'cargos', 'uf'));
