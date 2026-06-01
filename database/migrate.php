@@ -563,6 +563,114 @@ try {
 
 echo "[migrate] Tabela parl_emendas_municipios criada.\n";
 
+// ── Tabelas ausentes do migrate original ──────────────────────────────────────
+
+$pdo->exec("CREATE TABLE IF NOT EXISTS estados (
+    id         INT AUTO_INCREMENT PRIMARY KEY,
+    uf         CHAR(2)      NOT NULL UNIQUE,
+    nome       VARCHAR(100) NOT NULL,
+    regiao     CHAR(2)      NOT NULL COMMENT 'N, NE, CO, SE, S',
+    ativo      TINYINT(1)   NOT NULL DEFAULT 1,
+    created_at TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+$pdo->prepare("INSERT INTO estados (uf, nome, regiao) VALUES (?,?,?) ON DUPLICATE KEY UPDATE nome=VALUES(nome), regiao=VALUES(regiao)")
+    ->execute(['AC','Acre','N']);
+foreach ([
+    ['AL','Alagoas','NE'],['AM','Amazonas','N'],['AP','Amapá','N'],['BA','Bahia','NE'],
+    ['CE','Ceará','NE'],['DF','Distrito Federal','CO'],['ES','Espírito Santo','SE'],
+    ['GO','Goiás','CO'],['MA','Maranhão','NE'],['MG','Minas Gerais','SE'],
+    ['MS','Mato Grosso do Sul','CO'],['MT','Mato Grosso','CO'],['PA','Pará','N'],
+    ['PB','Paraíba','NE'],['PE','Pernambuco','NE'],['PI','Piauí','NE'],
+    ['PR','Paraná','S'],['RJ','Rio de Janeiro','SE'],['RN','Rio Grande do Norte','NE'],
+    ['RO','Rondônia','N'],['RR','Roraima','N'],['RS','Rio Grande do Sul','S'],
+    ['SC','Santa Catarina','S'],['SE','Sergipe','NE'],['SP','São Paulo','SE'],
+    ['TO','Tocantins','N'],
+] as [$uf,$nome,$reg]) {
+    $pdo->prepare("INSERT INTO estados (uf,nome,regiao) VALUES (?,?,?) ON DUPLICATE KEY UPDATE nome=VALUES(nome),regiao=VALUES(regiao)")
+        ->execute([$uf,$nome,$reg]);
+}
+
+$pdo->exec("CREATE TABLE IF NOT EXISTS municipios_rm (
+    cd_municipio INT UNSIGNED  NOT NULL,
+    nm_municipio VARCHAR(120)  NOT NULL,
+    uf           CHAR(2)       NOT NULL,
+    cd_rm        VARCHAR(10)   NOT NULL,
+    nm_rm        VARCHAR(220)  NOT NULL,
+    PRIMARY KEY (cd_municipio),
+    KEY idx_uf (uf),
+    KEY idx_rm (cd_rm)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+$pdo->exec("CREATE TABLE IF NOT EXISTS parl_mandatos_gov (
+    id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    source_key  VARCHAR(50)       NOT NULL,
+    sapl_id     INT UNSIGNED      NOT NULL,
+    ano_eleicao SMALLINT UNSIGNED NOT NULL,
+    periodo_ini SMALLINT UNSIGNED NOT NULL,
+    periodo_fim SMALLINT UNSIGNED NOT NULL,
+    turno       TINYINT UNSIGNED  NULL,
+    coligacao   VARCHAR(300)      NULL,
+    resultado   VARCHAR(100)      NULL,
+    votos       BIGINT UNSIGNED   NULL,
+    pct_votos   DECIMAL(5,2)      NULL,
+    UNIQUE KEY uq_gov_mandato (source_key, sapl_id, ano_eleicao)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+$pdo->exec("CREATE TABLE IF NOT EXISTS parl_mandatos_pref (
+    id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    source_key  VARCHAR(50)       NOT NULL,
+    sapl_id     INT UNSIGNED      NOT NULL,
+    ano_eleicao SMALLINT UNSIGNED NOT NULL,
+    periodo_ini SMALLINT UNSIGNED NOT NULL,
+    periodo_fim SMALLINT UNSIGNED NOT NULL,
+    turno       TINYINT UNSIGNED  NULL,
+    coligacao   VARCHAR(300)      NULL,
+    resultado   VARCHAR(100)      NULL,
+    votos       BIGINT UNSIGNED   NULL,
+    pct_votos   DECIMAL(5,2)      NULL,
+    UNIQUE KEY uq_pref (source_key, sapl_id, ano_eleicao)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+$pdo->exec("CREATE TABLE IF NOT EXISTS parl_redes_sociais (
+    id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    source_key VARCHAR(50)  NOT NULL,
+    sapl_id    INT UNSIGNED NOT NULL,
+    plataforma VARCHAR(50)  NOT NULL,
+    url        VARCHAR(500) NOT NULL,
+    UNIQUE KEY uq_parl_rede (source_key, sapl_id, plataforma)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+$pdo->exec("CREATE TABLE IF NOT EXISTS projeto_usuarios (
+    projeto_id INT UNSIGNED NOT NULL,
+    usuario_id INT UNSIGNED NOT NULL,
+    PRIMARY KEY (projeto_id, usuario_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+echo "[migrate] Tabelas estados/municipios_rm/mandatos/redes criadas.\n";
+
+// ── Colunas adicionais em tabelas existentes ───────────────────────────────────
+
+$migracoes3 = [
+    // parl_parlamentares — módulos governadores e prefeitos
+    "ALTER TABLE parl_parlamentares ADD COLUMN IF NOT EXISTS tse_sq       BIGINT UNSIGNED NULL AFTER partido_sigla",
+    "ALTER TABLE parl_parlamentares ADD COLUMN IF NOT EXISTS cd_municipio INT UNSIGNED    NULL AFTER uf",
+    "ALTER TABLE parl_parlamentares ADD COLUMN IF NOT EXISTS nm_municipio VARCHAR(120)    NULL AFTER cd_municipio",
+    "ALTER TABLE parl_parlamentares ADD COLUMN IF NOT EXISTS nm_rm        VARCHAR(220)    NULL AFTER nm_municipio",
+    // parl_perfil_detalhe — enriquecimento de governadores
+    "ALTER TABLE parl_perfil_detalhe ADD COLUMN IF NOT EXISTS patrimonio     DECIMAL(15,2)     NULL AFTER escolaridade",
+    "ALTER TABLE parl_perfil_detalhe ADD COLUMN IF NOT EXISTS votos_2022     BIGINT UNSIGNED   NULL AFTER patrimonio",
+    "ALTER TABLE parl_perfil_detalhe ADD COLUMN IF NOT EXISTS coligacao_2022 VARCHAR(300)      NULL AFTER votos_2022",
+    "ALTER TABLE parl_perfil_detalhe ADD COLUMN IF NOT EXISTS resultado_2022 VARCHAR(100)      NULL AFTER coligacao_2022",
+    "ALTER TABLE parl_perfil_detalhe ADD COLUMN IF NOT EXISTS turno_2022     TINYINT UNSIGNED  NULL AFTER resultado_2022",
+    // projetos — fonte_id opcional
+    "ALTER TABLE projetos MODIFY COLUMN fonte_id INT UNSIGNED NULL DEFAULT NULL",
+];
+foreach ($migracoes3 as $sql) {
+    try { $pdo->exec($sql); } catch (PDOException $e) { /* já existe */ }
+}
+echo "[migrate] Colunas adicionais aplicadas.\n";
+
 $pdo->exec("CREATE TABLE IF NOT EXISTS parl_pac (
     id               INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     parlamentar_id   INT UNSIGNED  NOT NULL,

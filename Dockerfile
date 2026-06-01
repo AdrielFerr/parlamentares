@@ -12,6 +12,9 @@ RUN sed -i '/<Directory \/var\/www\/>/,/<\/Directory>/ s/AllowOverride None/Allo
 # Copia o app (exceto o que está no .dockerignore)
 COPY . /var/www/html/
 
+# Guarda cópia das fotos para seed do volume em runtime
+RUN cp -r /var/www/html/public/uploads /var/www/html/public/uploads_seed
+
 # Permissões
 RUN chown -R www-data:www-data /var/www/html \
     && find /var/www/html -type f -name "*.php" -exec chmod 644 {} \; \
