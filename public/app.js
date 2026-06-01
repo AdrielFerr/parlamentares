@@ -3033,14 +3033,17 @@ async function renderTabAgente(p) {
     comissoes.length ? 'comissões e participação' : '',
     frentes.length  ? 'frentes parlamentares' : '',
   ].filter(Boolean);
+  const visibleTabs = getVisibleTabs().map(t=>t.id);
+  const hasFinancas = visibleTabs.includes('financas');
+  const govTopics   = ['mandatos', hasFinancas ? 'finanças do estado' : null].filter(Boolean).join(' e ');
   const welcomeMsg = isGovOnly
-    ? `<p>Olá! Sou o Agente IA. Tenho dados de <strong>${esc(nomeParlamentar)}</strong> sobre: mandatos e finanças do estado.</p><p>Posso responder perguntas sobre o histórico de mandatos e dados financeiros do estado.</p>`
+    ? `<p>Olá! Sou o Agente IA. Tenho dados de <strong>${esc(nomeParlamentar)}</strong> sobre: ${govTopics}.</p><p>Posso responder perguntas sobre o histórico de mandatos${hasFinancas?' e dados financeiros do estado':''}.</p>`
     : `<p>Olá! Sou o Agente IA de análise legislativa. Tenho dados completos de <strong>${esc(nomeParlamentar)}</strong> sobre: ${welcomeExtras.join(', ')||'produção legislativa'}.</p><p>Posso analisar ranking por tema, produtividade por ano, buscar proposições específicas, comparar períodos e muito mais.</p>`;
   h+=`<div class="agente-msg"><div class="agente-av ia">IA</div><div class="agente-bubble ia">${welcomeMsg}</div></div>`;
   h+='</div>';
   h+='<div class="agente-input-bar">';
   const agentePlaceholder = isGovOnly
-    ? 'Pergunte sobre mandatos, finanças do estado...'
+    ? (hasFinancas ? 'Pergunte sobre mandatos, finanças do estado...' : 'Pergunte sobre mandatos...')
     : isCamaraAg
       ? `Pergunte sobre proposições, normas sancionadas, emendas${pacItens.length?', Novo PAC':''}, comissões, frentes...`
       : 'Pergunte sobre matérias, normas, comissões, frentes...';
