@@ -181,9 +181,7 @@ $flagMap = [
              data-search="<?= htmlspecialchars(strtolower($p['nome'])) ?>">
           <div class="est-proj-info">
             <span class="est-proj-nome"><?= htmlspecialchars($p['nome']) ?></span>
-            <span class="est-proj-meta">
-              <?= number_format($parlCount) ?> parlamentares<?= $clienteNome ? ' · ' . htmlspecialchars($clienteNome) : '' ?>
-            </span>
+            <span class="est-proj-meta"><?= $clienteNome ? htmlspecialchars($clienteNome) : '' ?></span>
           </div>
           <div class="est-proj-actions">
             <button class="btn-sel <?= $ativo ? 'btn-sel-ativo' : '' ?>"
@@ -225,7 +223,7 @@ $flagMap = [
         <div class="est-proj-item <?= $ativo ? 'ativo' : '' ?>">
           <div class="est-proj-info">
             <span class="est-proj-nome"><?= htmlspecialchars($p['nome']) ?></span>
-            <span class="est-proj-meta"><?= number_format($parlCount) ?> parlamentares<?= $clienteNome ? ' · ' . htmlspecialchars($clienteNome) : '' ?></span>
+            <span class="est-proj-meta"><?= $clienteNome ? htmlspecialchars($clienteNome) : '' ?></span>
           </div>
           <div class="est-proj-actions">
             <button class="btn-del" onclick="confirmarExcluir(<?= $p['id'] ?>, <?= htmlspecialchars(json_encode($p['nome'])) ?>)" title="Excluir">
