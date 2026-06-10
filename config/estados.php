@@ -10,6 +10,9 @@ return [
     'MG' => [
         ['cargo' => 'estadual', 'source_key' => 'almg', 'label' => 'Assembleia Legislativa', 'apply_uf' => false],
     ],
+    'RJ' => [
+        ['cargo' => 'estadual', 'source_key' => 'alrj', 'label' => 'Assembleia Legislativa', 'apply_uf' => false],
+    ],
     'PB' => [
         ['cargo' => 'estadual',  'source_key' => 'alpb',     'label' => 'Assembleia Legislativa',       'apply_uf' => false],
         ['cargo' => 'municipal', 'source_key' => 'cmjp',     'label' => 'Câmara de João Pessoa',        'apply_uf' => false],
