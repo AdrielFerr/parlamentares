@@ -49,7 +49,7 @@ define('SOURCES', [
     'santarita'      => ['label' => 'C.M. Santa Rita',     'url' => 'https://sapl.santarita.pb.leg.br'],
     'alpb'           => ['label' => 'ALPB',                 'url' => 'https://sapl.al.pb.leg.br'],
     'alsp'           => ['label' => 'ALESP',                'url' => 'https://sapl.al.sp.leg.br'],
-    'alrj'           => ['label' => 'ALERJ',                'url' => 'https://sapl.alerj.rj.gov.br'],
+    'alrj'           => ['label' => 'ALERJ',                'url' => 'https://www.alerj.rj.gov.br'],
     'brasilia'       => ['label' => 'C.M. Brasília',        'url' => 'https://sapl.cl.df.leg.br'],
     'alpe'           => ['label' => 'ALEPE',                'url' => 'https://sapl.alepe.pe.leg.br'],
     'alrn'           => ['label' => 'ALERN',                'url' => 'https://sapl.al.rn.leg.br'],

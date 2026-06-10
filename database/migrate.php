@@ -169,7 +169,7 @@ $fontes = [
     ['santarita',      'C.M. Santa Rita',     'https://sapl.santarita.pb.leg.br'],
     ['alpb',           'ALPB',                'https://sapl.al.pb.leg.br'],
     ['alsp',           'ALESP',               'https://sapl.al.sp.leg.br'],
-    ['alrj',           'ALERJ',               'https://sapl.alerj.rj.gov.br'],
+    ['alrj',           'ALERJ',               'https://www.alerj.rj.gov.br'],
     ['brasilia',       'C.M. Brasília',       'https://sapl.cl.df.leg.br'],
     ['alpe',           'ALEPE',               'https://sapl.alepe.pe.leg.br'],
     ['alrn',           'ALERN',               'https://sapl.al.rn.leg.br'],
